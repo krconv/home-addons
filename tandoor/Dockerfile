@@ -11,6 +11,9 @@ RUN \
     printf "[global]\nextra-index-url=https://www.piwheels.org/simple\n" > /etc/pip.conf ; \
     fi
 
+ENV S6_CMD_WAIT_FOR_SERVICES=1 \
+    S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0 \
+    S6_SERVICES_GRACETIME=0
 
 ARG VERSION=1.5.24
 
@@ -20,6 +23,8 @@ RUN wget https://github.com/TandoorRecipes/recipes/archive/refs/tags/$VERSION.ta
     mv recipes-$VERSION /app
 
 WORKDIR /app
+
+RUN ln -s /app /opt/recipes
 
 RUN sed -i '/# Development/,$d' requirements.txt && \
     apk add --no-cache --virtual .build-deps gcc musl-dev postgresql-dev zlib-dev jpeg-dev libwebp-dev openssl-dev libffi-dev cargo openldap-dev python3-dev && \
@@ -36,8 +41,7 @@ RUN chmod a+x boot.sh
 ENV DOCKER=true
 EXPOSE 8080
 
-COPY run.sh /
-RUN chmod a+x /run.sh
+COPY run.sh .
+RUN chmod a+x run.sh
 
-CMD [ "/run.sh" ]
-
+CMD [ "/app/run.sh" ]
