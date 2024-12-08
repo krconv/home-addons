@@ -2,6 +2,7 @@
 
 if [ ! -f /data/secret.txt ]; then
     bashio::log.info "Generating secret key..."
+    mkdir /data
     head /dev/urandom | tr -dc A-Za-z0-9 | head -c 50 > /data/secret.txt
 fi
 export SECRET_KEY_FILE=/data/secret.txt
