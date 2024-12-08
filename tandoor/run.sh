@@ -10,6 +10,8 @@ export SECRET_KEY_FILE=/data/secret.txt
 export DB_ENGINE=django.db.backends.sqlite3
 export POSTGRES_DB=/data/recipes.db
 
+export GUNICORN_MEDIA=1
+
 export ALLOWED_HOSTS=*
 
 export SORT_TREE_BY_NAME=0
