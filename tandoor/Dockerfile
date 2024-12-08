@@ -20,17 +20,16 @@ ARG VERSION=1.5.24
 RUN wget https://github.com/TandoorRecipes/recipes/archive/refs/tags/$VERSION.tar.gz && \
     tar -xvzf $VERSION.tar.gz && \
     rm $VERSION.tar.gz && \
-    mv recipes-$VERSION /app
+    mv recipes-$VERSION /opt/recipes
 
-WORKDIR /app
+WORKDIR /opt/recipes
 
-RUN ln -s /app /opt/recipes
 
 RUN sed -i '/# Development/,$d' requirements.txt && \
     apk add --no-cache --virtual .build-deps gcc musl-dev postgresql-dev zlib-dev jpeg-dev libwebp-dev openssl-dev libffi-dev cargo openldap-dev python3-dev && \
     echo -n "INPUT ( libldap.so )" > /usr/lib/libldap_r.so && \
     python -m venv venv && \
-    /app/venv/bin/python -m pip install --upgrade pip && \
+    venv/bin/python -m pip install --upgrade pip && \
     venv/bin/pip install wheel==0.42.0 && \
     venv/bin/pip install setuptools_rust==1.9.0 && \
     venv/bin/pip install -r requirements.txt --no-cache-dir &&\
@@ -38,10 +37,11 @@ RUN sed -i '/# Development/,$d' requirements.txt && \
 
 RUN chmod a+x boot.sh
 
+ENV PYTHONUNBUFFERED=1
 ENV DOCKER=true
 EXPOSE 8080
 
 COPY run.sh .
 RUN chmod a+x run.sh
 
-CMD [ "/app/run.sh" ]
+CMD [ "/opt/recipes/run.sh" ]
