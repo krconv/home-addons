@@ -11,6 +11,8 @@ RUN wget https://github.com/TandoorRecipes/recipes/archive/refs/tags/$VERSION.ta
     mv recipes-$VERSION /opt/recipes
 
 WORKDIR /opt/recipes
+RUN mkdir mediafiles && chmod 755 mediafiles && \
+    mkdir staticfiles && chmod 755 staticfiles
 
 RUN if [ `apk --print-arch` = "armv7" ]; \
     then printf "[global]\nextra-index-url=https://www.piwheels.org/simple\n" > /etc/pip.conf ; \

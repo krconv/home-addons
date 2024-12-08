@@ -1,6 +1,6 @@
 name: "Tandoor"
 description: "The recipe manager that allows you to manage your ever growing collection of digital recipes."
-version: "1.5.24.6"
+version: "1.5.24.7"
 slug: "tandoor"
 init: false
 arch:
