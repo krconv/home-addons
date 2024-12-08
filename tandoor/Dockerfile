@@ -24,7 +24,6 @@ RUN wget https://github.com/TandoorRecipes/recipes/archive/refs/tags/$VERSION.ta
 
 WORKDIR /opt/recipes
 
-
 RUN sed -i '/# Development/,$d' requirements.txt && \
     apk add --no-cache --virtual .build-deps gcc musl-dev postgresql-dev zlib-dev jpeg-dev libwebp-dev openssl-dev libffi-dev cargo openldap-dev python3-dev && \
     echo -n "INPUT ( libldap.so )" > /usr/lib/libldap_r.so && \
@@ -40,6 +39,9 @@ RUN chmod a+x boot.sh
 ENV PYTHONUNBUFFERED=1
 ENV DOCKER=true
 EXPOSE 8080
+
+RUN mkdir -p /data && \
+    ln -s /opt/recipes/mediafiles /data/mediafiles
 
 COPY run.sh .
 RUN chmod a+x run.sh
