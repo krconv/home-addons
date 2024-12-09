@@ -57,36 +57,9 @@ This application is meant for people with a collection of recipes they want to s
 store them in a nicely organized way. A basic permission system exists but this application is not meant to be run as
 a public page.
 
-## Docs
+## Upstream Updates
+When there is a new version of Tandoor, follow these steps.
 
-Documentation can be found [here](https://docs.tandoor.dev/).
-
-## Support our work
-Tandoor is developed by volunteers in their free time just because its fun. That said earning
-some money with the project allows us to spend more time on it and thus make improvements we otherwise couldn't.
-Because of that there are several ways you can support us
-
-- **GitHub Sponsors** You can sponsor contributors of this project on GitHub: [vabene1111](https://github.com/sponsors/vabene1111)
-- **Host at Hetzner** We have been very happy customers of Hetzner for multiple years for all of our projects. If you want to get into self-hosting or are tired of the expensive big providers, their cloud servers are a great place to get started. When you sign up via our [referral link](https://hetzner.cloud/?ref=ISdlrLmr9kGj) you will get 20€ worth of cloud credits and we get a small kickback too.
-- **Let us host for you** We are offering a [hosted version](https://app.tandoor.dev) where all profits support us and the development of tandoor (currently only available in germany).
-
-## Contributing
-Contributions are welcome but please read [this](https://docs.tandoor.dev/contribute/guidelines/) **BEFORE** contributing anything!
-
-## Your Feedback
-
-Share some information on how you use Tandoor to help me improve the application [Google Survey](https://forms.gle/qNfLK2tWTeWHe9Qd7)
-
-## Get in touch
-
-<table>
-  <tr>
-    <td><a href="https://discord.gg/RhzBrfWgtp">Discord</a></td>
-    <td>We have a public Discord server that anyone can join. This is where all our developers and contributors hang out and where we make announcements</td>
-  </tr>
-
-  <tr>
-    <td><a href="https://twitter.com/TandoorRecipes">Twitter</a></td>
-    <td>You can follow our Twitter account to get updates on new features or releases</td>
-  </tr>
-</table>
+ 1. Update `VERSION` argument in [Dockerfile](./Dockerfile)
+ 2. Update [Dockerfile](./Dockerfile) steps if they were modified upstream
+ 3. Update `version` in [config.yaml](./config.yaml)
