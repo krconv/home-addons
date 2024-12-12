@@ -1,0 +1,4 @@
+#!/usr/bin/with-contenv bashio
+
+mkdir -p /var/run/dbus
+dbus-daemon --system --nofork

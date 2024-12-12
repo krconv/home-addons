@@ -1,0 +1,8 @@
+#!/usr/bin/with-contenv bashio
+
+until [ -e /var/run/avahi-daemon/socket ]; do
+  sleep 1s
+done
+
+cupsd -f
+
