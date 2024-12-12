@@ -2,7 +2,7 @@
 
 ulimit -n 1048576
 
-bashio::log.info "Starting CUPS..."
+bashio::log.info "Starting CUPS test..."
 
 cupsd -t
 
