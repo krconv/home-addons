@@ -1,0 +1,18 @@
+name: "CUPS Print Server"
+description: "The standards-based, open source printing system developed by Apple for iOS, iPadOS, and macOS"
+version: "2.4.9.1"
+slug: "cups"
+panel_icon: mdi:printer
+init: false
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+host_network: true
+ports:
+  631/tcp: 631
+  631/udp: 631
+ingress: true
+ingress_port: 631
