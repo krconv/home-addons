@@ -14,6 +14,8 @@ export GUNICORN_MEDIA=1
 
 export ALLOWED_HOSTS=*
 
+export DEBUG=0
+
 export SORT_TREE_BY_NAME=0
 export ENABLE_PDF_EXPORT=1
 
