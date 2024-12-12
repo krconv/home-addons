@@ -7,7 +7,7 @@ RUN apk add cups cups-filters
 
 COPY rootfs/etc/cups/cupsd.conf /etc/cups/cupsd.conf
 
-RUN ln -s /etc/cups /data
+# RUN ln -s /etc/cups /data
     
 WORKDIR /app
 
