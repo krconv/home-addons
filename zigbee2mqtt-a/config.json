@@ -1,6 +1,6 @@
 {
   "name": "Zigbee2MQTT (Network A)",
-  "version": "1.42.0",
+  "version": "1.42.0-2",
   "slug": "zigbee2mqtt-a",
   "description": "Allows you to use your Zigbee devices without the vendor's bridge or gateway",
   "uart": true,
