@@ -6,8 +6,11 @@ until [ -e /var/run/avahi-daemon/socket ]; do
   sleep 1s
 done
 
-mkdir /data
-cp -v -R /etc/cups /data/
+
+if [ ! -d /data ]; then
+  mkdir /data
+  cp -v -R /etc/cups /data/
+fi
 rm -v -fR /etc/cups
 ln -v -s /data/cups /etc/cups
 
