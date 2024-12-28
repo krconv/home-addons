@@ -6,6 +6,11 @@ until [ -e /var/run/avahi-daemon/socket ]; do
   sleep 1s
 done
 
+mkdir /data
+cp -v -R /etc/cups /data/
+rm -v -fR /etc/cups
+ln -v -s /data/cups /etc/cups
+
 bashio::log.info "Starting CUPS server"
 
 cupsd -f
