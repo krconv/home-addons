@@ -1,6 +1,6 @@
 name: "CUPS Print Server"
 description: "The standards-based, open source printing system developed by Apple for iOS, iPadOS, and macOS"
-version: "2.4.2.3"
+version: "2.4.2.4"
 slug: "cups"
 panel_icon: mdi:printer
 init: false
@@ -16,3 +16,9 @@ ports:
   631/udp: 631
 ingress: true
 ingress_port: 80
+map:
+  - type: share
+    read_only: False
+  - type: ssl
+  - type: data
+    path: /etc/cups

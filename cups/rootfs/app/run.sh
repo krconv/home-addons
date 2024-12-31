@@ -7,13 +7,6 @@ until [ -e /var/run/avahi-daemon/socket ]; do
 done
 
 
-if [ ! -d /data ]; then
-  mkdir /data
-  cp -v -R /etc/cups /data/
-fi
-rm -v -fR /etc/cups
-ln -v -s /data/cups /etc/cups
-
 bashio::log.info "Starting CUPS server"
 
 cupsd -f
