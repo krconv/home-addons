@@ -4,28 +4,27 @@ version: 0.17.4
 slug: appdaemon
 description: Python Apps and Dashboard using AppDaemon 4.x for Home Assistant
 url: https://github.com/hassio-addons/addon-appdaemon
-startup: application
+codenotary: codenotary@frenck.dev
+webui: http://[HOST]:[PORT:5050]
+arch:
+  - aarch64
+  - amd64
+init: false
+homeassistant_api: true
+uart: true
+hassio_api: true
 services:
 - mqtt:need
-arch:
-- aarch64
-- amd64
-boot: auto
-init: false
-uart: true
-homeassistant_api: true
-hassio_api: true
-panel_icon: mdi:zigbee
+ports:
+  5050/tcp: 5050
+ports_description:
+  5050/tcp: AppDaemon
 map:
   - addon_config:rw
   - homeassistant_config:rw
   - media:rw
   - share:rw
   - ssl
-ports:
-  5050/tcp: 5050
-ports_description:
-  5050/tcp: AppDaemon
 options:
   system_packages: []
   python_packages: []
@@ -33,9 +32,9 @@ options:
 schema:
   log_level: list(trace|debug|info|notice|warning|error|fatal)?
   system_packages:
-  - str
+    - str
   python_packages:
-  - str
+    - str
   init_commands:
-  - str
+    - str
 image: ghcr.io/hassio-addons/appdaemon/{arch}
