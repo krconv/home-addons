@@ -1,40 +1,21 @@
 name: Pinchflat
 slug: pinchflat
-version: "1.0.0"
+version: "0.1.0"
 description: Self-hosted YouTube manager (yt-dlp) with web UI
 url: https://github.com/kieraneglin/pinchflat
-arch:
-  - aarch64
-  - amd64
-  - armhf
-  - armv7
-  - i386
-init: false
-image: "ghcr.io/kieraneglin/pinchflat:latest"
+arch: [aarch64, amd64]
+startup: services
+boot: auto
+init: false            # we run /run.sh directly; no S6 services needed
+ingress: true
+ingress_port: 8945
+panel_icon: mdi:youtube
+panel_title: Pinchflat
 ports:
-  8945/tcp: 8945
-webui: http://[HOST]:[PORT:8945]
-init: false
-arch:
-  - aarch64
-  - amd64
-  - armv7
+  8945/tcp: 8945       # optional if you only want ingress
 map:
-  - addon_config:rw
-  - share:rw
-  - media:rw
-ports:
-  8787/tcp: 8787
-environment:
-  TZ: "America/New_York"
-  # Optional hardening / tweaks supported by Pinchflat:
-  # LOG_LEVEL: "debug"
-  # UMASK: "022"
-  # BASIC_AUTH_USERNAME: ""
-  # BASIC_AUTH_PASSWORD: ""
-  # EXPOSE_FEED_ENDPOINTS: "false"
-  # ENABLE_IPV6: ""
-  # JOURNAL_MODE: "wal"     # Use 'delete' if config is on a network share
-  # BASE_ROUTE_PATH: "/"    # If you later front it with a reverse proxy
-  # YT_DLP_WORKER_CONCURRENCY: "2"
-  # ENABLE_PROMETHEUS: ""
+  - media:rw           # where downloads will go (/media/youtube)
+  - addon_config:rw    # optional: expose /config for user-visible files/logs
+watchdog: http://[HOST]:[PORT:8945]/healthcheck
+options: {}
+schema: {}
