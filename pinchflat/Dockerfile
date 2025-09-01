@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile:1
+ARG BUILD_FROM
 
 # ---------- Build stage (unchanged: Debian toolchain) ----------
 ARG ELIXIR_VERSION=1.18.4
@@ -45,10 +46,9 @@ COPY rel rel
 RUN mix release
 
 # ---------- Runtime stage (HA add-on base image: Debian) ----------
-ARG BUILD_FROM
 ARG BUILD_VERSION
 ARG BUILD_ARCH
-FROM ${BUILD_FROM} AS runner
+FROM $BUILD_FROM AS runner
 
 # Required HA add-on labels
 LABEL \
