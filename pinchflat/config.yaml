@@ -13,10 +13,18 @@ init: false
 image: "ghcr.io/kieraneglin/pinchflat:latest"
 ports:
   8945/tcp: 8945
+webui: http://[HOST]:[PORT:8945]
+init: false
+arch:
+  - aarch64
+  - amd64
+  - armv7
 map:
-  - config:rw    # Pinchflat stores its config at /config (inside container)
-  - media:rw     # Use /media/youtube as your downloads folder
-  - share:rw     # (optional) extra space
+  - addon_config:rw
+  - share:rw
+  - media:rw
+ports:
+  8787/tcp: 8787
 environment:
   TZ: "America/New_York"
   # Optional hardening / tweaks supported by Pinchflat:
