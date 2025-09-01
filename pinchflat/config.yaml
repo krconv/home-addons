@@ -1,6 +1,6 @@
 name: Pinchflat
 slug: pinchflat
-version: "0.2.0"
+version: "0.3.0"
 description: Self-hosted YouTube manager (yt-dlp) with web UI
 url: https://github.com/kieraneglin/pinchflat
 arch: [aarch64, amd64]
