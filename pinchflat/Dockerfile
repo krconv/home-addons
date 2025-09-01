@@ -42,7 +42,6 @@ COPY assets assets
 
 RUN yarn --cwd assets install && mix assets.deploy && mix compile
 COPY config/runtime.exs config/
-COPY rel rel
 RUN mix release
 
 # ---------- Runtime stage (HA add-on base image: Debian) ----------
