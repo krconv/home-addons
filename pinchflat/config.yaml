@@ -1,0 +1,40 @@
+name: Pinchflat
+slug: pinchflat
+version: "1.0.0"
+description: Self-hosted YouTube manager (yt-dlp) with web UI
+url: https://github.com/kieraneglin/pinchflat
+arch:
+  - aarch64
+  - amd64
+startup: services
+boot: auto
+init: false
+image: "ghcr.io/kieraneglin/pinchflat:latest"
+ingress: true
+ingress_port: 8945
+panel_icon: mdi:youtube
+panel_title: Pinchflat
+# Optional: also expose the web port directly (you can remove this if you only want Ingress)
+ports:
+  8945/tcp: 8945
+# Let Pinchflat see HA folders:
+map:
+  - config:rw    # Pinchflat stores its config at /config (inside container)
+  - media:rw     # Use /media/youtube as your downloads folder
+  - share:rw     # (optional) extra space
+environment:
+  TZ: "America/New_York"
+  # Optional hardening / tweaks supported by Pinchflat:
+  # LOG_LEVEL: "debug"
+  # UMASK: "022"
+  # BASIC_AUTH_USERNAME: ""
+  # BASIC_AUTH_PASSWORD: ""
+  # EXPOSE_FEED_ENDPOINTS: "false"
+  # ENABLE_IPV6: ""
+  # JOURNAL_MODE: "wal"     # Use 'delete' if config is on a network share
+  # BASE_ROUTE_PATH: "/"    # If you later front it with a reverse proxy
+  # YT_DLP_WORKER_CONCURRENCY: "2"
+  # ENABLE_PROMETHEUS: ""
+watchdog: http://[HOST]:[PORT:8945]/
+options: {}
+schema: {}
