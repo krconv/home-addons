@@ -1,6 +1,7 @@
 name: TubeSync
 slug: tubesync
 version: "0.1.0"
+description: Sync your media library with YouTube
 image: ghcr.io/meeb/tubesync
 arch: [aarch64, amd64]
 ingress: true
