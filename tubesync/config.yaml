@@ -1,27 +1,27 @@
 name: TubeSync
 slug: tubesync
-version: "v0.15.8"            # tag from upstream releases
-image: ghcr.io/meeb/tubesync  # no tag here; HA appends :version
-description: Sonarr-like PVR for YouTube (yt-dlp) with web UI
+version: "v0.15.8"                 # or whatever tag you want
+image: ghcr.io/meeb/tubesync       # Supervisor pulls ghcr.io/meeb/tubesync:v0.15.8
+description: Sonarr-like PVR for YouTube with web UI
 url: https://github.com/meeb/tubesync
 arch: [aarch64, amd64]
 startup: services
 boot: auto
+init: false                        # <-- CRITICAL for images that use s6 inside
 ingress: true
 ingress_port: 4848
 panel_title: TubeSync
 panel_icon: mdi:youtube
 map:
-  - media:rw          # gives the container /media
-  - addon_config:rw   # persistent /config for TubeSync DB/cache
+  - media:rw                       # gives the container /media
+  - addon_config:rw                # persistent /config
 environment:
   TZ: America/New_York
-  PUID: "0"           # or set to your preferred uid/gid if needed
+  PUID: "0"                        # set to your desired uid/gid if needed
   PGID: "0"
-  # Optional built-in basic auth:
-  # HTTP_USER: "user"
-  # HTTP_PASS: "strongpassword"
-# (optional) expose a direct port too
+  # Optional tuning:
+  # TUBESYNC_WORKERS: "1"          # lighter concurrency
+# If ingress gives you trouble, comment it out and expose the port:
 # ports:
 #   4848/tcp: 4848
 watchdog: http://[HOST]:[PORT:4848]/
