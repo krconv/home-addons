@@ -104,16 +104,18 @@ RUN set -eux; \
 # s6-overlay service: prepare init + supervised run
 RUN set -eux; \
   mkdir -p /etc/cont-init.d /etc/services.d/pinchflat; \
+  # cont-init script (runs before services)
   printf '%s\n' \
-    '#!/usr/bin/ash' \
-    'set -euo pipefail' \
-    'DOWNLOADS_DIR="${DOWNLOADS_DIR:-/media/youtube}"' \
+    '#!/bin/sh' \
+    'set -eu' \
+    'DOWNLOADS_DIR="${DOWNLOADS_DIR:-/media/YouTube}"' \
     'mkdir -p "$DOWNLOADS_DIR"' \
     'ln -sfn "$DOWNLOADS_DIR" /downloads' \
   > /etc/cont-init.d/10-setup; \
   chmod +x /etc/cont-init.d/10-setup; \
+  # long-running service
   printf '%s\n' \
-    '#!/usr/bin/ash' \
+    '#!/bin/sh' \
     'exec /app/bin/pinchflat start' \
   > /etc/services.d/pinchflat/run; \
   chmod +x /etc/services.d/pinchflat/run
