@@ -84,6 +84,36 @@ COPY --from=builder /usr/local/bin/ffprobe /usr/bin/ffprobe
 WORKDIR /app
 COPY --from=builder /src/_build/prod/rel/pinchflat ./
 
+RUN set -eux; \
+  for f in /app/releases/*/env.sh; do \
+    { \
+      echo ''; \
+      echo '# --- Pinchflat HA add-on: runtime env setup ---'; \
+      echo 'set -eu'; \
+      echo '# Seed SECRET_KEY_BASE from /config or generate & persist'; \
+      echo 'if [ -z "${SECRET_KEY_BASE:-}" ]; then'; \
+      echo '  if [ -f /config/secret_key_base ]; then'; \
+      echo '    export SECRET_KEY_BASE="$(cat /config/secret_key_base)";'; \
+      echo '  else'; \
+      echo '    if command -v openssl >/dev/null 2>&1; then'; \
+      echo '      SECRET="$(openssl rand -base64 64 | tr -d "\n" | tr -d "/=+" | cut -c1-64)";'; \
+      echo '    else'; \
+      echo '      SECRET="$(tr -dc "A-Za-z0-9" </dev/urandom | head -c 64)";'; \
+      echo '    fi'; \
+      echo '    echo "$SECRET" > /config/secret_key_base'; \
+      echo '    chmod 600 /config/secret_key_base || true'; \
+      echo '    export SECRET_KEY_BASE="$SECRET"'; \
+      echo '  fi'; \
+      echo 'fi'; \
+      echo ''; \
+      echo '# Force UTF-8 filenames to silence latin1 warning'; \
+      echo 'export LANG="${LANG:-en_US.UTF-8}"'; \
+      echo 'export LC_ALL="${LC_ALL:-en_US.UTF-8}"'; \
+      echo 'export ELIXIR_ERL_OPTIONS="${ELIXIR_ERL_OPTIONS:+$ELIXIR_ERL_OPTIONS }+fnu"'; \
+      echo '# --- end add-on patch ---'; \
+    } >> "$f"; \
+  done
+
 # HA-friendly paths: /data persists; /media is HA's media share (mapped via config.yaml)
 # Symlink for Pinchflat's expectations without changing the app
 RUN mkdir -p /data /media/youtube /etc/elixir_tzdata_data /etc/yt-dlp/plugins && \
