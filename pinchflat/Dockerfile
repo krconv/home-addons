@@ -3,11 +3,11 @@
 ##### Global (must be before any FROM using it) #####
 ARG BUILD_FROM
 
-# Builder versions (Debian toolchain for reliability)
+# Builder versions (Debian toolchain)
 ARG ELIXIR_VERSION=1.18.4
 ARG OTP_VERSION=27.2.4
 ARG DEBIAN_VERSION=bookworm-20250428-slim
-ARG PINCHFLAT_REF=master   # set to a tag like v2025.6.6 for reproducible builds
+ARG PINCHFLAT_REF=master   # set to a tag like v2025.6.6 for reproducibility
 
 ##### -------- Builder (Debian) -------- #####
 FROM hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION} AS builder
@@ -25,7 +25,7 @@ RUN apt-get update -y && \
     mix local.hex --force && mix local.rebar --force && \
     rm -rf /var/lib/apt/lists/*
 
-# Optional: FFmpeg/ffprobe in builder (not used at runtime on Alpine)
+# FFmpeg/ffprobe (prebuilt, arch-aware)
 RUN set -eux; \
   case "${TARGETPLATFORM:-linux/amd64}" in \
     "linux/arm64") FFMPEG_URL="https://github.com/yt-dlp/FFmpeg-Builds/releases/download/autobuild-2024-07-30-14-10/ffmpeg-N-116468-g0e09f6d690-linuxarm64-gpl.tar.xz" ;; \
@@ -35,9 +35,10 @@ RUN set -eux; \
   tar -xf /tmp/ffmpeg.tar.xz --strip-components=2 --no-anchored -C /usr/local/bin ffmpeg ffprobe && \
   rm -f /tmp/ffmpeg.tar.xz
 
-# Pull Pinchflat source and build release
+# Fetch source and build release
 WORKDIR /src
 RUN git clone --depth 1 --branch "${PINCHFLAT_REF}" https://github.com/kieraneglin/pinchflat ./
+
 RUN yarn --cwd assets install && \
     mix deps.get --only prod && \
     mix deps.compile && \
@@ -45,7 +46,7 @@ RUN yarn --cwd assets install && \
     mix compile && \
     mix release
 
-##### -------- Runtime (Home Assistant add-on base: Alpine) -------- #####
+##### -------- Runtime (Home Assistant add-on base: Debian) -------- #####
 FROM $BUILD_FROM AS runner
 ARG BUILD_VERSION
 ARG BUILD_ARCH
@@ -53,28 +54,43 @@ LABEL io.hass.type="addon" \
       io.hass.version="${BUILD_VERSION}" \
       io.hass.arch="${BUILD_ARCH}"
 
-# Minimal runtime deps (musl/Alpine)
-# - Use Alpine ffmpeg (yt-dlp static builds are glibc; don’t copy from builder)
-RUN apk add --no-cache \
-      bash curl python3 ffmpeg ca-certificates tzdata && \
-    update-ca-certificates
+# Minimal runtime deps (keep slim for memory)
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+      libstdc++6 openssl libncurses5 locales ca-certificates \
+      python3 curl tzdata && \
+    update-ca-certificates && \
+    sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen && \
+    curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
+    chmod a+rx /usr/local/bin/yt-dlp && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# App files
+# Use the Debian-built ffmpeg/ffprobe from builder
+COPY --from=builder /usr/local/bin/ffmpeg /usr/bin/ffmpeg
+COPY --from=builder /usr/local/bin/ffprobe /usr/bin/ffprobe
+
+# App release
 WORKDIR /app
 COPY --from=builder /src/_build/prod/rel/pinchflat ./
 
 # Persist & paths for HA
-RUN mkdir -p /data /media/youtube /etc/elixir_tzdata_data /etc/yt-dlp/plugins && \
+RUN mkdir -p /data /media/YouTube /etc/elixir_tzdata_data /etc/yt-dlp/plugins && \
     ln -sfn /data /config && \
-    ln -sfn /media/youtube /downloads
+    ln -sfn /media/YouTube /downloads
 
-# Default env (can be overridden by add-on config)
-ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 \
-    MIX_ENV=prod RUN_CONTEXT=selfhosted UMASK=022 PORT=8945 \
-    PHX_SERVER=true
+# Default env (memory tuning + UTF-8)
+ENV LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8 \
+    MIX_ENV=prod \
+    RUN_CONTEXT=selfhosted \
+    UMASK=022 \
+    PORT=8945 \
+    PHX_SERVER=true \
+    ELIXIR_ERL_OPTIONS="+S 2:2 +fnu" \
+    ERL_AFLAGS="-emu_type emu" \
+    MALLOC_ARENA_MAX=2
 
-# Patch the release env so SECRET_KEY_BASE is guaranteed before runtime.exs
-# (read from /config/secret_key_base or generate once and persist)
+# Ensure SECRET_KEY_BASE exists *before* runtime.exs via release env.sh
 RUN set -eux; \
   for f in /app/releases/*/env.sh; do \
     { \
@@ -95,16 +111,15 @@ RUN set -eux; \
       echo '    export SECRET_KEY_BASE="$SECRET"'; \
       echo '  fi'; \
       echo 'fi'; \
-      echo '# Force UTF-8 filenames if host encoding is latin1'; \
+      echo '# Force UTF-8 filenames'; \
       echo 'export ELIXIR_ERL_OPTIONS="${ELIXIR_ERL_OPTIONS:+$ELIXIR_ERL_OPTIONS }+fnu"'; \
       echo '# --- end patch ---'; \
     } >> "$f"; \
   done
 
-# s6-overlay service: prepare init + supervised run
+# s6 init scripts
 RUN set -eux; \
   mkdir -p /etc/cont-init.d /etc/services.d/pinchflat; \
-  # cont-init script (runs before services)
   printf '%s\n' \
     '#!/bin/sh' \
     'set -eu' \
@@ -113,7 +128,6 @@ RUN set -eux; \
     'ln -sfn "$DOWNLOADS_DIR" /downloads' \
   > /etc/cont-init.d/10-setup; \
   chmod +x /etc/cont-init.d/10-setup; \
-  # long-running service
   printf '%s\n' \
     '#!/bin/sh' \
     'exec /app/bin/pinchflat start' \
