@@ -1,52 +1,43 @@
 # syntax=docker/dockerfile:1
 
-##### Global args (needed before any FROM) #####
-# Provided by HA Supervisor from build.yaml (do not hardcode here)
+##### Global (must be before any FROM using it) #####
 ARG BUILD_FROM
 
-# Builder versions
+# Builder versions (Debian toolchain for reliability)
 ARG ELIXIR_VERSION=1.18.4
 ARG OTP_VERSION=27.2.4
 ARG DEBIAN_VERSION=bookworm-20250428-slim
+ARG PINCHFLAT_REF=master   # set to a tag like v2025.6.6 for reproducible builds
 
-# Pinchflat git ref to build. Use a tag (recommended) or 'master'.
-ARG PINCHFLAT_REF=master
-
-##### -------- Builder stage (Debian toolchain) -------- #####
+##### -------- Builder (Debian) -------- #####
 FROM hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION} AS builder
 ARG TARGETPLATFORM
 ARG PINCHFLAT_REF
+ENV MIX_ENV=prod ERL_FLAGS="+JPperf true"
 
-RUN echo "Building for ${TARGETPLATFORM:-linux/amd64}, source ref: ${PINCHFLAT_REF}"
-
-# Base tools, Node/Yarn, Hex/Rebar, FFmpeg/ffprobe for static runtime copy
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
       build-essential git curl ca-certificates xz-utils && \
-    curl -sL https://deb.nodesource.com/setup_20.x -o /tmp/nodesource_setup.sh && \
-    bash /tmp/nodesource_setup.sh && \
+    curl -sL https://deb.nodesource.com/setup_20.x -o /tmp/node.sh && \
+    bash /tmp/node.sh && \
     apt-get install -y --no-install-recommends nodejs && \
     npm install -g yarn && \
     mix local.hex --force && mix local.rebar --force && \
     rm -rf /var/lib/apt/lists/*
 
-# FFmpeg/ffprobe (prebuilt from yt-dlp builds; arch-aware)
+# Optional: FFmpeg/ffprobe in builder (not used at runtime on Alpine)
 RUN set -eux; \
   case "${TARGETPLATFORM:-linux/amd64}" in \
     "linux/arm64") FFMPEG_URL="https://github.com/yt-dlp/FFmpeg-Builds/releases/download/autobuild-2024-07-30-14-10/ffmpeg-N-116468-g0e09f6d690-linuxarm64-gpl.tar.xz" ;; \
     *)             FFMPEG_URL="https://github.com/yt-dlp/FFmpeg-Builds/releases/download/autobuild-2024-07-30-14-10/ffmpeg-N-116468-g0e09f6d690-linux64-gpl.tar.xz" ;; \
   esac; \
   curl -L "$FFMPEG_URL" -o /tmp/ffmpeg.tar.xz && \
-  tar -xf /tmp/ffmpeg.tar.xz --strip-components=2 --no-anchored -C /usr/local/bin ffmpeg && \
-  tar -xf /tmp/ffmpeg.tar.xz --strip-components=2 --no-anchored -C /usr/local/bin ffprobe && \
+  tar -xf /tmp/ffmpeg.tar.xz --strip-components=2 --no-anchored -C /usr/local/bin ffmpeg ffprobe && \
   rm -f /tmp/ffmpeg.tar.xz
 
-# Fetch Pinchflat source
+# Pull Pinchflat source and build release
 WORKDIR /src
 RUN git clone --depth 1 --branch "${PINCHFLAT_REF}" https://github.com/kieraneglin/pinchflat ./
-
-# Build Pinchflat (assets + release)
-ENV MIX_ENV=prod ERL_FLAGS="+JPperf true"
 RUN yarn --cwd assets install && \
     mix deps.get --only prod && \
     mix deps.compile && \
@@ -54,85 +45,79 @@ RUN yarn --cwd assets install && \
     mix compile && \
     mix release
 
-##### -------- Runtime stage (Home Assistant add-on base) -------- #####
+##### -------- Runtime (Home Assistant add-on base: Alpine) -------- #####
 FROM $BUILD_FROM AS runner
-
-# Optional: these are set by Supervisor via --build-arg too
 ARG BUILD_VERSION
 ARG BUILD_ARCH
 LABEL io.hass.type="addon" \
       io.hass.version="${BUILD_VERSION}" \
       io.hass.arch="${BUILD_ARCH}"
 
-# Runtime packages + yt-dlp + apprise + locales
-RUN apt-get update -y && \
-    apt-get install -y --no-install-recommends \
-      libstdc++6 openssl libncurses5 locales ca-certificates \
-      python3 python3-mutagen pipx curl zip openssh-client jq procps tzdata xz-utils && \
-    update-ca-certificates && \
-    PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install apprise && \
-    curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
-    chmod a+rx /usr/local/bin/yt-dlp && \
-    sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+# Minimal runtime deps (musl/Alpine)
+# - Use Alpine ffmpeg (yt-dlp static builds are glibc; don’t copy from builder)
+RUN apk add --no-cache \
+      bash curl python3 ffmpeg ca-certificates tzdata && \
+    update-ca-certificates
 
-# Copy ffmpeg/ffprobe built in the builder
-COPY --from=builder /usr/local/bin/ffmpeg /usr/bin/ffmpeg
-COPY --from=builder /usr/local/bin/ffprobe /usr/bin/ffprobe
-
-# Copy Pinchflat release
+# App files
 WORKDIR /app
 COPY --from=builder /src/_build/prod/rel/pinchflat ./
 
+# Persist & paths for HA
+RUN mkdir -p /data /media/youtube /etc/elixir_tzdata_data /etc/yt-dlp/plugins && \
+    ln -sfn /data /config && \
+    ln -sfn /media/youtube /downloads
+
+# Default env (can be overridden by add-on config)
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+    MIX_ENV=prod RUN_CONTEXT=selfhosted UMASK=022 PORT=8945 \
+    PHX_SERVER=true
+
+# Patch the release env so SECRET_KEY_BASE is guaranteed before runtime.exs
+# (read from /config/secret_key_base or generate once and persist)
 RUN set -eux; \
   for f in /app/releases/*/env.sh; do \
     { \
       echo ''; \
-      echo '# --- Pinchflat HA add-on: runtime env setup ---'; \
+      echo '# --- HA add-on env patch ---'; \
       echo 'set -eu'; \
-      echo '# Seed SECRET_KEY_BASE from /config or generate & persist'; \
       echo 'if [ -z "${SECRET_KEY_BASE:-}" ]; then'; \
       echo '  if [ -f /config/secret_key_base ]; then'; \
       echo '    export SECRET_KEY_BASE="$(cat /config/secret_key_base)";'; \
       echo '  else'; \
       echo '    if command -v openssl >/dev/null 2>&1; then'; \
-      echo '      SECRET="$(openssl rand -base64 64 | tr -d "\n" | tr -d "/=+" | cut -c1-64)";'; \
+      echo '      SECRET="$(openssl rand -base64 64 | tr -d "/=+\n" | head -c 64)";'; \
       echo '    else'; \
       echo '      SECRET="$(tr -dc "A-Za-z0-9" </dev/urandom | head -c 64)";'; \
       echo '    fi'; \
-      echo '    echo "$SECRET" > /config/secret_key_base'; \
+      echo '    printf "%s" "$SECRET" > /config/secret_key_base'; \
       echo '    chmod 600 /config/secret_key_base || true'; \
       echo '    export SECRET_KEY_BASE="$SECRET"'; \
       echo '  fi'; \
       echo 'fi'; \
-      echo ''; \
-      echo '# Force UTF-8 filenames to silence latin1 warning'; \
-      echo 'export LANG="${LANG:-en_US.UTF-8}"'; \
-      echo 'export LC_ALL="${LC_ALL:-en_US.UTF-8}"'; \
+      echo '# Force UTF-8 filenames if host encoding is latin1'; \
       echo 'export ELIXIR_ERL_OPTIONS="${ELIXIR_ERL_OPTIONS:+$ELIXIR_ERL_OPTIONS }+fnu"'; \
-      echo '# --- end add-on patch ---'; \
+      echo '# --- end patch ---'; \
     } >> "$f"; \
   done
 
-# HA-friendly paths: /data persists; /media is HA's media share (mapped via config.yaml)
-# Symlink for Pinchflat's expectations without changing the app
-RUN mkdir -p /data /media/youtube /etc/elixir_tzdata_data /etc/yt-dlp/plugins && \
-    ln -sfn /data /config && \
-    ln -sfn /media/youtube /downloads && \
-    chmod -R ugo+rw /etc/elixir_tzdata_data /etc/yt-dlp /etc/yt-dlp/plugins
-
-ENV LANG=en_US.UTF-8 \
-    LANGUAGE=en_US:en \
-    LC_ALL=en_US.UTF-8 \
-    MIX_ENV=prod \
-    RUN_CONTEXT=selfhosted \
-    UMASK=022 \
-    PORT=8945
+# s6-overlay service: prepare init + supervised run
+RUN set -eux; \
+  mkdir -p /etc/cont-init.d /etc/services.d/pinchflat; \
+  printf '%s\n' \
+    '#!/usr/bin/ash' \
+    'set -euo pipefail' \
+    'DOWNLOADS_DIR="${DOWNLOADS_DIR:-/media/youtube}"' \
+    'mkdir -p "$DOWNLOADS_DIR"' \
+    'ln -sfn "$DOWNLOADS_DIR" /downloads' \
+  > /etc/cont-init.d/10-setup; \
+  chmod +x /etc/cont-init.d/10-setup; \
+  printf '%s\n' \
+    '#!/usr/bin/ash' \
+    'exec /app/bin/pinchflat start' \
+  > /etc/services.d/pinchflat/run; \
+  chmod +x /etc/services.d/pinchflat/run
 
 EXPOSE 8945
-
-HEALTHCHECK --interval=30s --start-period=15s \
-  CMD curl --fail http://localhost:${PORT}/healthcheck || exit 1
-
-# Start: ensure /downloads points to mapped media (in case env overrides), then run release script
-CMD ["/bin/sh", "-c", "mkdir -p ${DOWNLOADS_DIR:-/media/youtube} && ln -sfn ${DOWNLOADS_DIR:-/media/youtube} /downloads && exec /app/bin/docker_start"]
+HEALTHCHECK --interval=30s --start-period=20s \
+  CMD curl -fsS http://127.0.0.1:${PORT}/healthcheck || exit 1

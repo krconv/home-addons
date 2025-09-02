@@ -19,3 +19,11 @@ map:
 watchdog: http://[HOST]:[PORT:8945]/healthcheck
 options: {}
 schema: {}
+environment:
+  # BEAM memory tuning
+  ELIXIR_ERL_OPTIONS: "+S 2:2 +fnu"
+  ERL_AFLAGS: "-emu_type emu"
+  MALLOC_ARENA_MAX: "2"           # (no-op on musl/Alpine, harmless)
+  # App/runtime
+  PHX_SERVER: "true"
+  YT_DLP_WORKER_CONCURRENCY: "1"
