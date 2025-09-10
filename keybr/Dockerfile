@@ -20,7 +20,7 @@ WORKDIR /build/src
 RUN npm ci && npm run build
 
 # Serve built assets
-RUN mkdir -p /var/www/html && cp -r /build/src/dist/* /var/www/html/
+RUN mkdir -p /var/www/html && cp -r /build/src/root/* /var/www/html/
 
 # Add s6 service + nginx config
 COPY rootfs/ /
