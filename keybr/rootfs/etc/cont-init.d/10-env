@@ -3,7 +3,7 @@
 set -e
 
 # Add-on option (falls back to /data/keybr.sqlite)
-DB_FILE="{{ .options.db_filename | default "/data/keybr.sqlite" }}"
+DB_FILE="/data/keybr.sqlite"
 
 mkdir -p /etc/keybr
 
