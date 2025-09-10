@@ -1,0 +1,36 @@
+name: "Scripts"
+version: "2025.9.10a"
+slug: "scripts"
+description: "General-purpose Python automation platform for Home Assistant integrations"
+arch:
+  - aarch64
+  - amd64
+  - armv7
+init: false
+startup: services
+services:
+  - mqtt:want
+healthcheck:
+  test: ["CMD-SHELL", "[ -f /run/healthchecks/mqtt ] && grep -q connected /run/healthchecks/mqtt"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 60s
+options:
+  log_level: "info"
+  zigbee_base_topics: []
+  apps:
+    - name: "lights"
+      enabled: true
+      config_file: "/config/lights.yaml"
+schema:
+  log_level: "list(debug|info|warning|error)"
+  zigbee_base_topics:
+    - "str"
+  apps:
+    - name: "str"
+      enabled: "bool"
+      config_file: "str?"
+map:
+  - share:rw
+  - config:ro
