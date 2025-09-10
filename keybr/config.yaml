@@ -1,0 +1,16 @@
+name: "Keybr.com"
+slug: "keybr"
+version: "2025.9.10a"
+description: "The smartest way to learn touch typing and improve your typing speed."
+url: "https://github.com/aradzie/keybr.com"
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+init: false
+ingress: true
+ingress_port: 8080
+ports:
+  8080/tcp: 8080
