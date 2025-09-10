@@ -1,0 +1,38 @@
+#!/usr/bin/with-contenv bash
+# Prepare a persistent /etc/keybr/env that points SQLite at /data
+set -e
+
+# Add-on option (falls back to /data/keybr.sqlite)
+DB_FILE="{{ .options.db_filename | default "/data/keybr.sqlite" }}"
+
+mkdir -p /etc/keybr
+
+# If upstream example exists, seed it once; it's okay if it doesn't.
+if [ ! -f /etc/keybr/env ] && [ -f /opt/keybr/.env.example ]; then
+  cp /opt/keybr/.env.example /etc/keybr/env || true
+fi
+touch /etc/keybr/env
+
+# Ensure required envs are present/overridden for SQLite in /data.
+# We write multiple common vars to be compatible with upstream config.
+ensure_kv () {
+  local key="$1" val="$2"
+  if grep -qE "^${key}=" /etc/keybr/env; then
+    sed -i "s#^${key}=.*#${key}=${val}#g" /etc/keybr/env
+  else
+    echo "${key}=${val}" >> /etc/keybr/env
+  fi
+}
+
+ensure_kv DATABASE_CLIENT "sqlite"
+ensure_kv DATABASE_FILENAME "${DB_FILE}"
+# Provide a generic URL too, in case the code prefers it.
+ensure_kv DATABASE_URL "sqlite:${DB_FILE}"
+
+# Also set server port for HA ingress
+ensure_kv PORT "8080"
+
+# Create the data file/dir so permissions are right before initdb
+mkdir -p "$(dirname "${DB_FILE}")"
+[ -f "${DB_FILE}" ] || touch "${DB_FILE}"
+chmod 664 "${DB_FILE}" || true

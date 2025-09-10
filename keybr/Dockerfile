@@ -11,16 +11,13 @@ ARG REPO_REF="master"
 # Tooling to build and serve
 RUN apk add --no-cache git nodejs npm nginx
 
-# Get sources
-WORKDIR /build
-RUN git clone --depth=1 -b "${REPO_REF}" "${REPO_URL}" src
+# Fetch source
+WORKDIR /opt
+RUN git clone --depth=1 -b "${REPO_REF}" "${REPO_URL}" keybr
+WORKDIR /opt/keybr
 
 # Build the SPA
-WORKDIR /build/src
 RUN npm ci && npm run build
-
-# Serve built assets
-RUN mkdir -p /var/www/html && cp -r /build/src/root/* /var/www/html/
 
 # Add s6 service + nginx config
 COPY rootfs/ /

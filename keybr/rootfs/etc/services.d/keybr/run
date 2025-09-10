@@ -1,0 +1,19 @@
+#!/usr/bin/with-contenv bash
+set -euo pipefail
+
+cd /opt/keybr
+
+# Load env expected by keybr (the project supports /etc/keybr/env)
+set -a
+[ -f /etc/keybr/env ] && . /etc/keybr/env
+set +a
+
+# Ensure Node can find source maps if present
+export NODE_ENV=production
+
+# 1) Initialize DB schema + seed examples
+node ./packages/devenv/lib/initdb.ts
+
+# 2) Start the Node server
+# Upstream runs: node --enable-source-maps ./root/index.js
+exec node --enable-source-maps ./root/index.js

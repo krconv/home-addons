@@ -1,5 +1,0 @@
-#!/usr/bin/with-contenv bash
-# s6 service to run nginx in the foreground
-set -e
-mkdir -p /run/nginx
-exec nginx -g 'daemon off;'
