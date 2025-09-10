@@ -19,6 +19,8 @@ WORKDIR /opt/keybr
 # Build the SPA
 RUN npm ci && npm run build
 
+RUN npm install -g tsx && chmod +x ./packages/devenv/lib/initdb.ts
+
 # Add s6 service + nginx config
 COPY rootfs/ /
 
