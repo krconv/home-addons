@@ -12,8 +12,7 @@ set +a
 export NODE_ENV=production
 
 # 1) Initialize DB schema + seed examples
-ts-node --project ./tsconfig.json --esm --transpile-only \
-  ./packages/devenv/lib/initdb.ts
+ts-node --esm --transpile-only ./packages/devenv/lib/initdb.ts
 
 # 2) Start the Node server
 # Upstream runs: node --enable-source-maps ./root/index.js
