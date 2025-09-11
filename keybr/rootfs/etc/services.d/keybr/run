@@ -12,8 +12,8 @@ set +a
 export NODE_ENV=production
 
 # 1) Initialize DB schema + seed examples
-# Use ts-node CLI with upstream tsconfig; handle ESM and speed via transpile-only
-ts-node --esm --transpile-only ./packages/devenv/lib/initdb.ts
+# Use tsx with the upstream tsconfig to support decorators
+tsx ./packages/devenv/lib/initdb.ts
 
 # 2) Start the Node server
 # Upstream runs: node --enable-source-maps ./root/index.js
