@@ -10,6 +10,7 @@ ARG REPO_REF="master"
 
 # Tooling to build and serve
 RUN apk add --no-cache git nodejs npm nginx
+RUN npm install -g tsx ts-node typescript
 
 # Fetch source
 WORKDIR /opt
@@ -19,7 +20,6 @@ WORKDIR /opt/keybr
 # Build the SPA
 RUN npm ci && npm run build
 
-RUN npm install -g tsx && chmod +x ./packages/devenv/lib/initdb.ts
 
 # Add s6 service + nginx config
 COPY rootfs/ /
