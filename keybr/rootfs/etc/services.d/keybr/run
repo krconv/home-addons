@@ -12,7 +12,8 @@ set +a
 export NODE_ENV=production
 
 # 1) Initialize DB schema + seed examples
-./packages/devenv/lib/initdb.ts
+# BusyBox env doesn't support "-S" in shebangs; run via tsx explicitly
+tsx ./packages/devenv/lib/initdb.ts
 
 # 2) Start the Node server
 # Upstream runs: node --enable-source-maps ./root/index.js
