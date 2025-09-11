@@ -8,4 +8,4 @@ echo "Starting Scripts add-on..."
 cd /app
 
 # Start the Python application using Poetry-managed venv
-exec /app/.venv/bin/python -m src.main
+exec /app/.venv/bin/python src/main.py
