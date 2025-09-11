@@ -12,8 +12,7 @@ set +a
 export NODE_ENV=production
 
 # 1) Initialize DB schema + seed examples
-# Use tsx with the upstream tsconfig to support decorators
-tsx ./packages/devenv/lib/initdb.ts
+tsx --tsconfig ./packages/devenv/tsconfig.json ./packages/devenv/lib/initdb.ts
 
 # 2) Start the Node server
 # Upstream runs: node --enable-source-maps ./root/index.js
