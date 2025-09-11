@@ -8,20 +8,23 @@ RUN apk add --no-cache \
     python3-dev \
     gcc \
     musl-dev \
-    bash
+    bash \
+    curl
 
-# Install Poetry
-RUN pip3 install --no-cache-dir poetry
-
-# Set up Python environment
 WORKDIR /app
 
-# Copy poetry files
+# Install Poetry (user install) and configure in-project virtualenv
+ENV POETRY_VERSION=1.8.3
+RUN curl -sSL https://install.python-poetry.org | python3 - && \
+    ln -s /root/.local/bin/poetry /usr/local/bin/poetry
+ENV PATH="/root/.local/bin:${PATH}"
+
+# Copy poetry files first for better layer caching
 COPY pyproject.toml poetry.lock ./
 
-# Configure poetry and install dependencies
-RUN poetry config virtualenvs.create false && \
-    poetry install --only=main --no-dev
+# Configure Poetry to create venv in project and install only main deps
+RUN poetry config virtualenvs.in-project true && \
+    poetry install --only=main --no-dev --no-interaction
 
 # Copy application code
 COPY src/ ./src/

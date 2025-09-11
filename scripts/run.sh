@@ -7,5 +7,5 @@ echo "Starting Scripts add-on..."
 # Change to app directory
 cd /app
 
-# Start the Python application
-exec python3 -m src.main
+# Start the Python application using Poetry-managed venv
+exec /app/.venv/bin/python -m src.main
