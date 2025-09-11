@@ -4,8 +4,10 @@ import logging
 import os
 import signal
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
-import lights_app
+from . import lights_app, mqtt
 
 class AppManager:
     """Main application manager for the Scripts add-on."""
@@ -71,6 +73,9 @@ class AppManager:
                 self.logger.error(f"Failed to initialize app {app_name}: {e}")
                 # Continue with other apps rather than failing completely
 
+        # Start HTTP health endpoint
+        await self._start_http_health()
+
     async def _create_app(self, app_name: str, app_config: dict):
         """Create and initialize an app instance."""
         if app_name == "lights":
@@ -87,8 +92,17 @@ class AppManager:
 
     def _signal_handler(self, signum, _):
         """Handle shutdown signals."""
-        self.logger.info(f"Received signal {signum}, initiating shutdown...")
-        self._shutdown_event.set()
+        if self._shutdown_event.is_set():
+            self.logger.warning(
+                f"Received signal {signum} during shutdown; forcing immediate exit"
+            )
+            os._exit(128 + int(signum))
+        else:
+            self.logger.info(f"Received signal {signum}, initiating shutdown...")
+            self._shutdown_event.set()
+
+            if self._health_server is not None:
+                self._health_server.shutdown()
 
     async def run(self):
         """Run the application manager."""
@@ -110,6 +124,47 @@ class AppManager:
         """Perform health checks on running apps."""
         # This could be extended to check app health
         return len(self.apps) > 0
+
+    async def _start_http_health(self) -> None:
+        """Expose a minimal HTTP endpoint using stdlib http.server on 0.0.0.0:8787."""
+        manager = self
+
+        class HealthHandler(BaseHTTPRequestHandler):
+            def do_GET(self):  # type: ignore[override]
+                status_code, body = manager._compute_health_sync()
+                self.send_response(status_code)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body.encode("utf-8"))
+
+            def log_message(self, format, *args):  # noqa: A003
+                # Suppress default access logs to keep logs clean
+                return
+
+        try:
+            self._health_server = HTTPServer(("0.0.0.0", 8787), HealthHandler)
+            thread = threading.Thread(target=self._health_server.serve_forever, daemon=True)
+            thread.start()
+            self.logger.info("HTTP health endpoint listening on 0.0.0.0:8787")
+        except Exception as e:
+            self.logger.error(f"Failed to start HTTP health endpoint: {e}")
+
+    def _compute_health_sync(self) -> tuple[int, str]:
+        """Return (status_code, body) for health endpoint (sync)."""
+        try:
+            apps_ok = len(self.apps) > 0
+            try:
+                mqtt_client = mqtt.MqttClient(self.logger, self.addon_config)
+                mqtt_ok = mqtt_client.is_connected
+            except Exception:
+                mqtt_ok = False
+
+            healthy = apps_ok and mqtt_ok
+            return (200, "connected\n") if healthy else (500, "disconnected\n")
+        except Exception as e:
+            self.logger.debug(f"Health computation error: {e}")
+            return (500, "disconnected\n")
 
 
 async def main():

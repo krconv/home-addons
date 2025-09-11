@@ -5,9 +5,9 @@ import logging
 import random
 import typing
 
-import mqtt, utils
 import pydantic
 
+from . import mqtt, utils
 
 class ZigBeeDeviceState(pydantic.BaseModel):
     updated_at: datetime.datetime | None = None

@@ -1,5 +1,5 @@
 name: "Scripts"
-version: "2025.9.10f"
+version: "2025.9.11a"
 slug: "scripts"
 description: "General-purpose Python automation platform for Home Assistant integrations"
 arch:
@@ -10,12 +10,7 @@ init: false
 startup: services
 services:
   - mqtt:want
-healthcheck:
-  test: ["CMD-SHELL", "[ -f /run/healthchecks/mqtt ] && grep -q connected /run/healthchecks/mqtt"]
-  interval: 30s
-  timeout: 5s
-  retries: 3
-  start_period: 60s
+watchdog: "http://[HOST]:[PORT:8787]/health"
 options:
   log_level: "info"
   zigbee_base_topics: []

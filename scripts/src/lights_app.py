@@ -5,10 +5,10 @@ import math
 import os
 import typing
 
-import zigbee
 import pydantic
 import yaml
 
+from . import zigbee
 
 class LightDevice(pydantic.BaseModel):
     ieee: str
@@ -86,11 +86,6 @@ class LightsApp:
 
     async def _setup_schedulers(self):
         """Setup timers for lighting updates and health checks."""
-        try:
-            await self._update_all_circuits_lighting(datetime.datetime.now())
-        except Exception as e:
-            self.logger.error(f"Error during initial lighting update: {e}")
-
         asyncio.create_task(self._lighting_loop())
         asyncio.create_task(self._health_loop())
 

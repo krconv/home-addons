@@ -1,0 +1,14 @@
+#!/usr/bin/with-contenv bashio
+set -euo pipefail
+
+bashio::log.info "Starting Scripts add-on service"
+
+cd /app
+
+# Export log level to the app if provided
+LOG_LEVEL=$(bashio::config 'log_level' || echo 'info')
+export LOG_LEVEL
+
+# Exec the Python app from the Poetry-managed virtualenv
+exec /app/.venv/bin/python -m src.main
+

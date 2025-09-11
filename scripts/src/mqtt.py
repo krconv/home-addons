@@ -8,8 +8,9 @@ import subprocess
 import tempfile
 import typing
 
-import utils
 import paho.mqtt.client
+
+from . import utils
 
 
 @utils.singleton
@@ -127,7 +128,6 @@ class MqttClient:
             self._connected = True
             self.logger.info("Connected to MQTT broker")
             self._connect_event.set()
-            self._write_health_status()
         else:
             self.logger.error(f"Failed to connect to MQTT broker: {paho.mqtt.client.error_string(error_code)} ({error_code})")
             self._connect_event.set()
@@ -139,7 +139,7 @@ class MqttClient:
             self.logger.warning(f"Unexpected disconnection from MQTT broker: {paho.mqtt.client.error_string(error_code)} ({error_code})")
         else:
             self.logger.info("Disconnected from MQTT broker")
-        self._write_health_status()
+        
 
     def _on_message(self, client, userdata, msg):
         """Handle incoming MQTT messages."""
@@ -198,17 +198,4 @@ EOF"""
             except NameError:
                 pass
 
-    def _write_health_status(self) -> None:
-        """Update a simple runtime health file reflecting MQTT connectivity.
-
-        The Supervisor healthcheck reads this file to determine if the client
-        is currently connected (contains the word 'connected').
-        """
-        try:
-            # Ensure parent directory exists (it should on Alpine, but be safe)
-            os.makedirs(os.path.dirname(self._health_file) or "/", exist_ok=True)
-            with open(self._health_file, "w") as f:
-                f.write("connected\n" if self._connected else "disconnected\n")
-        except Exception as e:
-            # Don't crash on health file write failures; just log
-            self.logger.debug(f"Failed to write health status file: {e}")
+    # File-based health reporting removed in favor of HTTP watchdog

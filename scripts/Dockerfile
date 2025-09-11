@@ -30,5 +30,5 @@ RUN poetry config virtualenvs.in-project true && \
 COPY src/ ./src/
 COPY run.sh .
 
-# Set the startup command
-CMD ["./run.sh"]
+# Add s6 service definitions
+COPY rootfs/ /
