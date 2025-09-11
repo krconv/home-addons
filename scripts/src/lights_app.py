@@ -56,7 +56,8 @@ class LightsApp:
 
     _zigbee: zigbee.ZigBeeClient
     _config: LightsConfig
-    _lock: asyncio.Lock = asyncio.Lock()
+    _lighting_lock: asyncio.Lock = asyncio.Lock()
+    _health_lock: asyncio.Lock = asyncio.Lock()
 
     def __init__(self, logger: logging.Logger, addon_config: dict, app_config: dict):
         self.logger = logger
@@ -84,30 +85,61 @@ class LightsApp:
         await self._setup_schedulers()
 
     async def _setup_schedulers(self):
-        """Setup recurring timer for lighting updates and health checks."""
-        await self._loop()
-        # Schedule to run every 10 minutes
-        asyncio.create_task(self._schedule_loop())
+        """Setup timers for lighting updates and health checks."""
+        try:
+            await self._update_all_circuits_lighting(datetime.datetime.now())
+        except Exception as e:
+            self.logger.error(f"Error during initial lighting update: {e}")
 
-    async def _schedule_loop(self):
-        """Run the main loop every 10 minutes."""
+        asyncio.create_task(self._lighting_loop())
+        asyncio.create_task(self._health_loop())
+
+    async def _lighting_loop(self):
+        """Run lighting updates aligned to every 5-minute mark."""
+        await asyncio.sleep(self._seconds_until_next_interval(5))
         while True:
-            await asyncio.sleep(10 * 60)  # 10 minutes
             try:
-                await self._loop()
+                await self._update_all_circuits_lighting(datetime.datetime.now())
             except Exception as e:
-                self.logger.error(f"Error in lighting loop: {e}")
+                self.logger.error(f"Error in lighting update loop: {e}")
+            await asyncio.sleep(self._seconds_until_next_interval(5))
 
-    async def _loop(self, *args, **kwargs):
-        """Called every 10 minutes to update lighting and check device health."""
-        if self._lock.locked():
+    async def _health_loop(self):
+        """Run health checks aligned to every 15-minute mark, skipping quiet hours."""
+        await asyncio.sleep(self._seconds_until_next_interval(15))
+        while True:
+            try:
+                now = datetime.datetime.now()
+                if self._is_within_quiet_hours(now.time()):
+                    self.logger.info("Skipping health checks during quiet hours (18:00-08:00)")
+                else:
+                    await self._run_healthchecks(now)
+            except Exception as e:
+                self.logger.error(f"Error in health check loop: {e}")
+            await asyncio.sleep(self._seconds_until_next_interval(15))
+
+    def _seconds_until_next_interval(self, minutes_interval: int) -> float:
+        """Return seconds until the next aligned N-minute boundary."""
+        now = datetime.datetime.now()
+        seconds_since_hour = now.minute * 60 + now.second + now.microsecond / 1_000_000
+        interval_seconds = minutes_interval * 60
+        remaining = interval_seconds - (seconds_since_hour % interval_seconds)
+        if remaining == 0:
+            remaining = interval_seconds
+        return remaining
+
+    def _is_within_quiet_hours(self, t: datetime.time) -> bool:
+        """Return True if time is between 18:00 and 08:00 (inclusive of 18:00)."""
+        start_quiet = datetime.time(18, 0)
+        end_quiet = datetime.time(8, 0)
+        return t >= start_quiet or t < end_quiet
+
+    async def _update_all_circuits_lighting(self, now: datetime.datetime) -> None:
+        if self._lighting_lock.locked():
             return
-
-        async with self._lock:
-            self.logger.info("Starting lighting update and health check...")
+        async with self._lighting_lock:
+            self.logger.info("Updating lighting for all circuits")
             default_transition = 30  # seconds
-
-            now = datetime.datetime.now()
             calculated_lighting = [
                 (self._calculate_circuit_lighting(circuit, now), circuit)
                 for circuit in self._config.circuits
@@ -117,8 +149,18 @@ class LightsApp:
                     circuit, brightness, temperature, default_transition
                 )
 
+    async def _run_healthchecks(self, now: datetime.datetime) -> None:
+        if self._health_lock.locked():
+            return
+        async with self._health_lock:
+            self.logger.info("Running health checks for all circuits")
+            calculated_lighting = [
+                (self._calculate_circuit_lighting(circuit, now), circuit)
+                for circuit in self._config.circuits
+            ]
             for (brightness, temperature), circuit in calculated_lighting:
                 if await self._heal_circuit_if_needed(circuit):
+                    # After a repair, quickly bring lights back to the desired state
                     await self._update_circuit_lighting(
                         circuit, brightness, temperature, 1
                     )
