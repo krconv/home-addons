@@ -8,8 +8,7 @@ RUN apk add --no-cache \
     python3-dev \
     gcc \
     musl-dev \
-    bash \
-    bashio
+    bash
 
 # Install Poetry
 RUN pip3 install --no-cache-dir poetry
