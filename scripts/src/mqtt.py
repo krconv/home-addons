@@ -162,13 +162,20 @@ class MqttClient:
 
     def _get_mqtt_config_from_bashio(self) -> dict:
         """When running in Home Assistant, we can query the Addon API for MQTT credentials"""
-        script_content = """#!/usr/bin/env bashio
+        script_content = """#!/usr/bin/with-contenv bashio
+set -euo pipefail
 
 # Get MQTT configuration using bashio services and output as JSON
 MQTT_HOST=$(bashio::services mqtt "host")
 MQTT_PORT=$(bashio::services mqtt "port")
 MQTT_USER=$(bashio::services mqtt "username")
 MQTT_PASSWORD=$(bashio::services mqtt "password")
+
+# Basic validation to ensure discovery succeeded
+if [ -z "${MQTT_HOST:-}" ] || [ -z "${MQTT_PORT:-}" ] || [ -z "${MQTT_USER:-}" ]; then
+  bashio::log.error "Failed to retrieve MQTT service configuration via bashio"
+  exit 1
+fi
 
 # Output as JSON to stdout
 cat << EOF
@@ -188,9 +195,36 @@ EOF"""
                 temp_file.close()
                 script_path = temp_file.name
                 os.chmod(script_path, 0o755)
-                result = subprocess.run(
-                    [script_path], capture_output=True, text=True, check=True
-                )
+
+                try:
+                    result = subprocess.run(
+                        [script_path], capture_output=True, text=True, check=True
+                    )
+                except subprocess.CalledProcessError as e:
+                    # Provide a descriptive error with stdout/stderr hints
+                    msg_parts = [
+                        "Bashio MQTT discovery failed.",
+                        f"exit_code={e.returncode}",
+                    ]
+                    if e.stdout:
+                        msg_parts.append(f"stdout={e.stdout.strip()}")
+                    if e.stderr:
+                        msg_parts.append(f"stderr={e.stderr.strip()}")
+
+                    # Add common-cause guidance
+                    hints = []
+                    if not os.path.exists("/usr/bin/with-contenv"):
+                        hints.append("not running in a Home Assistant base image (with-contenv missing)")
+                    if not os.environ.get("SUPERVISOR_TOKEN"):
+                        hints.append("SUPERVISOR_TOKEN not set (likely not under Supervisor)")
+                    hints.append("MQTT add-on/service may be absent or not discovered by bashio")
+                    hints.append(
+                        "Provide mqtt_host/mqtt_port/mqtt_username/mqtt_password in add-on options (or options.local.json for dev) to bypass bashio"
+                    )
+
+                    hint_msg = "; ".join(hints)
+                    raise RuntimeError("; ".join(msg_parts) + f"; hints: {hint_msg}") from e
+
                 return json.loads(result.stdout)
         finally:
             try:
