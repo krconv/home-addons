@@ -20,7 +20,6 @@ class MqttClient:
 
     def __init__(self, logger: logging.Logger, addon_config: dict):
         self.logger = logger
-        self._health_file = "/run/healthchecks/mqtt"
 
         # Try to get MQTT config from addon options first
         if addon_config and all(key in addon_config for key in ["mqtt_host", "mqtt_username", "mqtt_password"]):
@@ -44,6 +43,7 @@ class MqttClient:
             if self._is_initialized:
                 return
 
+            self.logger.info("Initializing MQTT client")
             self._client = paho.mqtt.client.Client()
             self._callbacks: list[
                 tuple[str, re.Pattern, typing.Callable[[str, str], None]]
@@ -139,7 +139,7 @@ class MqttClient:
             self.logger.warning(f"Unexpected disconnection from MQTT broker: {paho.mqtt.client.error_string(error_code)} ({error_code})")
         else:
             self.logger.info("Disconnected from MQTT broker")
-        
+
 
     def _on_message(self, client, userdata, msg):
         """Handle incoming MQTT messages."""
