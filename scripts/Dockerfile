@@ -28,7 +28,6 @@ RUN poetry config virtualenvs.in-project true && \
 
 # Copy application code
 COPY src/ ./src/
-COPY run.sh .
 
 # Add s6 service definitions
 COPY rootfs/ /
