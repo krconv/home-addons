@@ -72,7 +72,7 @@ class MqttClient:
             self._is_initialized = True
 
     def publish(self, topic: str, payload: dict, qos: int = 0, retain: bool = False):
-        self.logger.info(f"Publishing to MQTT topic {topic}: {payload}")
+        self.logger.debug(f"Publishing to MQTT topic {topic}: {payload}")
 
         error_code, _ = self._client.publish(topic, json.dumps(payload), qos, retain)
         if error_code != paho.mqtt.client.MQTT_ERR_SUCCESS:
