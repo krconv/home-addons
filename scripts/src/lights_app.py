@@ -323,6 +323,11 @@ class LightsApp:
             self.logger.error("Switch is unresponsive, cannot perform reset")
             return
 
+        initial_state = hardwired_switches[0].state.properties["state"]
+        self.logger.info(
+            f"Captured initial state for {circuit.friendly_name}: {initial_state}"
+        )
+
         self.logger.info(
             f"Starting circuit reset for {circuit.friendly_name} due to unresponsive devices"
         )
@@ -357,10 +362,8 @@ class LightsApp:
                 if not await self._zigbee.permit_join(hardwired_switches[0], 120):
                     continue
 
-                await asyncio.sleep(120)
-
                 unresponsive_devices = await self._zigbee.get_unresponsive_devices(
-                    devices_to_check=unresponsive_devices
+                    devices_to_check=unresponsive_devices, timeout=120
                 )
                 if not unresponsive_devices:
                     break
@@ -376,6 +379,12 @@ class LightsApp:
                 await self._zigbee.set_and_verify_property(
                     switch, "smartBulbMode", "Smart Bulb Mode"
                 )
+
+            group = self._zigbee.get_group_by_id(circuit.group_id)
+            await self._zigbee.set_property(group, "state", initial_state)
+            self.logger.info(
+                f"Restored {circuit.friendly_name} to original state: {initial_state}"
+            )
 
     async def _power_cycle_switches(
         self, devices: list[zigbee.ZigBeeDevice], cycles: int = 5

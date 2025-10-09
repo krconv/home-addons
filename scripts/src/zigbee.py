@@ -9,6 +9,7 @@ import pydantic
 
 from . import mqtt, utils
 
+
 class ZigBeeDeviceState(pydantic.BaseModel):
     updated_at: datetime.datetime | None = None
     update: asyncio.Event = pydantic.Field(default_factory=asyncio.Event)
@@ -21,7 +22,7 @@ class ZigBeeDeviceState(pydantic.BaseModel):
 
 class ZigBeeDevice(pydantic.BaseModel):
     base_topic: str
-    type: typing.Literal["Coordinator", "Router", "EndDevice"]
+    type: typing.Literal["Coordinator", "Router", "EndDevice", "Unknown"]
     ieee_address: str
     network_address: int
     friendly_name: str
@@ -78,105 +79,105 @@ class ZigBeeClient:
             self._groups_by_id = {}
 
             for base_topic in self._base_topics:
+                self.logger.info(f"Discovering devices for base topic {base_topic}")
                 received_devices = asyncio.Event()
-
-                def on_devices_received(topic: str, payload: str):
-                    """Callback for receiving devices from MQTT."""
-                    try:
-                        data = json.loads(payload)
-                        for device in data:
-                            ieee = device.get("ieee_address")
-                            if ieee:
-                                ieee = ieee.replace("0x", "").lower()
-                                ieee = ":".join(
-                                    ieee[i : i + 2] for i in range(0, len(ieee), 2)
-                                )
-                                if ieee in self._devices_by_ieee:
-                                    for key, value in device.items():
-                                        try:
-                                            setattr(
-                                                self._devices_by_ieee[ieee], key, value
-                                            )
-                                        except ValueError:
-                                            pass
-                                else:
-                                    self._devices_by_ieee[ieee] = ZigBeeDevice(
-                                        base_topic=base_topic,
-                                        **device,
-                                        state=ZigBeeDeviceState(update=asyncio.Event()),
-                                    )
-                                self._devices_ieees_by_friendly_name[
-                                    device["friendly_name"]
-                                ] = ieee
-                        received_devices.set()
-                    except json.JSONDecodeError as e:
-                        self.logger.error(f"Error decoding JSON from {topic}: {e}")
-
                 self._mqtt.subscribe(
                     f"{base_topic}/bridge/devices",
-                    on_devices_received,
+                    self._on_devices_received(base_topic, received_devices),
                 )
-
                 try:
                     await asyncio.wait_for(received_devices.wait(), 10)
                 except asyncio.TimeoutError:
-                    self.logger.error("Failed to receive devices from MQTT within timeout")
+                    self.logger.error(
+                        "Failed to receive devices from MQTT within timeout"
+                    )
                     raise TimeoutError("MQTT devices reception timeout")
 
                 received_groups = asyncio.Event()
-
-                def on_groups_received(topic: str, payload: str):
-                    """Callback for receiving devices from MQTT."""
-                    try:
-                        if not topic.startswith(base_topic):
-                            self.logger.warning(
-                                f"Received groups on unexpected topic {topic}, expected prefix {base_topic}"
-                            )
-                            return
-                        data = json.loads(payload)
-                        for group in data:
-                            self._groups_by_id[f"{base_topic[-1]}-{group['id']}"] = (
-                                ZigBeeGroup(base_topic=base_topic, **group)
-                            )
-                        received_groups.set()
-                    except json.JSONDecodeError as e:
-                        self.logger.error(f"Error decoding JSON from {topic}: {e}")
-
                 self._mqtt.subscribe(
                     f"{base_topic}/bridge/groups",
-                    on_groups_received,
+                    self._on_groups_received(base_topic, received_groups),
                 )
-
                 try:
                     await asyncio.wait_for(received_groups.wait(), 10)
                 except asyncio.TimeoutError:
-                    self.logger.error("Failed to receive groups from MQTT within timeout")
+                    self.logger.error(
+                        "Failed to receive groups from MQTT within timeout"
+                    )
                     raise TimeoutError("MQTT devices reception timeout")
 
-                def on_state_received(topic: str, payload: str):
-                    """Callback for receiving device state updates."""
-                    try:
-                        friendly_name = topic.split("/")[-1]
-                        if friendly_name not in self._devices_ieees_by_friendly_name:
-                            return
-
-                        ieee = self._devices_ieees_by_friendly_name[friendly_name]
-                        device = self._devices_by_ieee[ieee]
-                        data = json.loads(payload)
-                        update = device.state.update
-                        device.state.properties = device.state.properties | data
-                        device.state.updated_at = datetime.datetime.now()
-                        device.state.update = asyncio.Event()
-                        update.set()
-                    except json.JSONDecodeError as e:
-                        self.logger.error(f"Error decoding JSON from {topic}: {e}")
-
-                self._mqtt.subscribe(
-                    f"{base_topic}/+",
-                    on_state_received,
-                )
+                self._mqtt.subscribe(f"{base_topic}/+", self._on_state_received())
 
         self._is_initialized = True
+
+    def _on_devices_received(self, base_topic: str, event: asyncio.Event):
+        """Callback for receiving devices from MQTT."""
+
+        def callback(topic: str, payload: str):
+            try:
+                data = json.loads(payload)
+                for device in data:
+                    ieee = device.get("ieee_address")
+                    if ieee:
+                        ieee = ieee.replace("0x", "").lower()
+                        ieee = ":".join(ieee[i : i + 2] for i in range(0, len(ieee), 2))
+                        if ieee in self._devices_by_ieee:
+                            for key, value in device.items():
+                                self._devices_by_ieee[ieee].base_topic = base_topic
+                                try:
+                                    setattr(self._devices_by_ieee[ieee], key, value)
+                                except ValueError:
+                                    pass
+                        else:
+                            self._devices_by_ieee[ieee] = ZigBeeDevice(
+                                base_topic=base_topic,
+                                **device,
+                                state=ZigBeeDeviceState(update=asyncio.Event()),
+                            )
+                        self._devices_ieees_by_friendly_name[
+                            device["friendly_name"]
+                        ] = ieee
+                event.set()
+            except json.JSONDecodeError as e:
+                self.logger.error(f"Error decoding JSON from {topic}: {e}")
+
+        return callback
+
+    def _on_groups_received(self, base_topic: str, event: asyncio.Event):
+        def callback(topic: str, payload: str):
+            """Callback for receiving devices from MQTT."""
+            try:
+                data = json.loads(payload)
+                for group in data:
+                    self._groups_by_id[f"{base_topic[-1]}-{group['id']}"] = ZigBeeGroup(
+                        base_topic=base_topic, **group
+                    )
+                event.set()
+            except json.JSONDecodeError as e:
+                self.logger.error(f"Error decoding JSON from {topic}: {e}")
+
+        return callback
+
+    def _on_state_received(self):
+        def callback(topic: str, payload: str):
+            """Callback for receiving device state updates."""
+            try:
+                friendly_name = topic.split("/")[-1]
+                if friendly_name not in self._devices_ieees_by_friendly_name:
+                    return
+
+                ieee = self._devices_ieees_by_friendly_name[friendly_name]
+                device = self._devices_by_ieee[ieee]
+                data = json.loads(payload)
+                update = device.state.update
+                device.state.properties = device.state.properties | data
+                device.state.updated_at = datetime.datetime.now()
+                device.state.update = asyncio.Event()
+                update.set()
+            except json.JSONDecodeError as e:
+                self.logger.error(f"Error decoding JSON from {topic}: {e}")
+
+        return callback
 
     def get_device_by_ieee(self, ieee: str) -> ZigBeeDevice:
         """Get a ZigBee device by its IEEE address."""
@@ -234,6 +235,9 @@ class ZigBeeClient:
             }
 
         self._mqtt.publish(f"{device.base_topic}/{device.friendly_name}/set", data)
+        self._mqtt.publish(
+            f"{device.base_topic}/{device.friendly_name}/get", {property: ""}
+        )
 
     async def set_and_verify_property(
         self,
@@ -247,9 +251,16 @@ class ZigBeeClient:
         for _ in range(3):
             update = device.state.update
             await self.set_property(device, property, value, transition=transition)
-            try:
-                await asyncio.wait_for(update.wait(), 10)
-            except asyncio.TimeoutError:
+            for _ in range(10):
+                try:
+                    await asyncio.wait_for(update.wait(), 1)
+                    break
+                except asyncio.TimeoutError:
+                    self._mqtt.publish(
+                        f"{device.base_topic}/{device.friendly_name}/get", {"state": ""}
+                    )
+
+            if not update.is_set():
                 self.logger.error(
                     f"Failed to set {property} on {device.friendly_name} within timeout"
                 )
@@ -271,7 +282,7 @@ class ZigBeeClient:
         updates = [(device, device.state.update) for device in devices_to_check]
         ungrouped_devices: list[ZigBeeDevice] = []
 
-        for attempt in range(120):
+        for attempt in range(24):
             self._mqtt.publish(
                 f"{group.base_topic}/{group.friendly_name}/get", {"state": ""}
             )
@@ -295,22 +306,30 @@ class ZigBeeClient:
         return ungrouped_devices
 
     async def get_unresponsive_devices(
-        self, devices_to_check: list[ZigBeeDevice]
+        self, devices_to_check: list[ZigBeeDevice], timeout: int = 120
     ) -> list[ZigBeeDevice]:
         return [
             devices_to_check[i]
             for i, responsive in enumerate(
                 await asyncio.gather(
-                    *[self.is_device_responsive(device) for device in devices_to_check]
+                    *[
+                        self.is_device_responsive(device, timeout=timeout)
+                        for device in devices_to_check
+                    ]
                 )
             )
             if not responsive
         ]
 
-    async def is_device_responsive(self, device: ZigBeeDevice) -> bool:
+    async def is_device_responsive(
+        self, device: ZigBeeDevice, timeout: int = 120
+    ) -> bool:
         update = device.state.update
 
-        for attempt in range(24):
+        end = datetime.datetime.now() + datetime.timedelta(seconds=timeout)
+        attempt = 0
+        while datetime.datetime.now() < end:
+            attempt += 1
             self._mqtt.publish(
                 f"{device.base_topic}/{device.friendly_name}/get", {"state": ""}
             )
@@ -319,7 +338,7 @@ class ZigBeeClient:
                 return True
 
         self.logger.warning(
-            f"Device {device.friendly_name} is unresponsive after {attempt + 1} attempts"
+            f"Device {device.friendly_name} is unresponsive after {attempt} attempts"
         )
         return False
 
