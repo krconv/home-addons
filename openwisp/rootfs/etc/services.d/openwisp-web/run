@@ -1,0 +1,11 @@
+#!/usr/bin/with-contenv bashio
+set -euo pipefail
+
+# shellcheck disable=SC1091
+. /run/openwisp/env
+
+cd /opt/openwisp
+
+envsubst < /opt/openwisp/uwsgi.conf.ini > /opt/openwisp/uwsgi.ini
+
+exec uwsgi --ini /opt/openwisp/uwsgi.ini

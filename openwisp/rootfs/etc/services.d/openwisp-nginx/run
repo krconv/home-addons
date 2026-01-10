@@ -1,0 +1,13 @@
+#!/usr/bin/with-contenv bashio
+set -euo pipefail
+
+# shellcheck disable=SC1091
+. /run/openwisp/env
+
+export MODULE_NAME="nginx"
+
+mkdir -p /etc/nginx/conf.d
+
+cd /etc/nginx
+
+exec sh /etc/nginx/init_command.sh

@@ -1,0 +1,9 @@
+#!/usr/bin/with-contenv bashio
+set -euo pipefail
+
+# shellcheck disable=SC1091
+. /run/openwisp/env
+
+cd /opt/openwisp
+
+exec celery -A openwisp worker --loglevel="${DJANGO_LOG_LEVEL}"

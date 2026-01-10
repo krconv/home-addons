@@ -1,51 +1,65 @@
-name: "OpenWISP"
-description: "Complete WiFi & network management platform with features like WiFi controller, monitoring system, captive portal, and radius server"
-version: "1.0.0"
-slug: "openwisp"
+name: OpenWISP
+slug: openwisp
+version: "0.2.0"
+description: OpenWISP add-on (single container, upstream docker-openwisp)
+url: https://openwisp.org/
+arch: [aarch64, amd64, armv7, armhf, i386]
+startup: services
+boot: auto
 init: false
-url: "https://openwisp.org/"
-webui: "http://[HOST]:[PORT:80]"
-panel_icon: mdi:wifi-settings
-startup: system
-panel_admin: true
 ingress: true
 ingress_port: 80
-arch:
-  - aarch64
-  - amd64
-  - armv7
+panel_icon: mdi:wifi
+panel_title: OpenWISP
 ports:
   80/tcp: 80
-  443/tcp: 443
-  1812/udp: 1812
-  1813/udp: 1813
-  1194/udp: 1194
-ports_description:
-  80/tcp: Web interface (HTTP)
-  443/tcp: Web interface (HTTPS)
-  1812/udp: RADIUS authentication
-  1813/udp: RADIUS accounting
-  1194/udp: OpenVPN
 options:
-  site_name: "OpenWISP"
-  site_url: ""
   admin_email: "admin@example.com"
   admin_password: "admin"
   time_zone: "UTC"
-  language_code: "en-us"
+  language_code: "en-gb"
   debug: false
+  allowed_hosts: "*"
+  dashboard_domain: "localhost"
+  api_domain: "localhost"
+  db_engine: "django.contrib.gis.db.backends.postgis"
+  db_host: ""
+  db_port: 5432
+  db_name: "openwisp"
+  db_user: "openwisp"
+  db_password: ""
+  redis_host: ""
+  redis_port: 6379
+  redis_user: ""
+  redis_password: ""
+  use_radius: false
+  use_topology: false
+  use_firmware: false
+  use_monitoring: false
+  metric_collection: false
+  secret_key: ""
 schema:
-  site_name: str
-  site_url: str
-  admin_email: email
+  admin_email: str
   admin_password: password
   time_zone: str
   language_code: str
   debug: bool
-map:
-  - data:rw
-  - share:rw
-  - ssl
-services:
-  - mqtt:need
-  - mqtt:want
+  allowed_hosts: str
+  dashboard_domain: str
+  api_domain: str
+  db_engine: str
+  db_host: str
+  db_port: int
+  db_name: str
+  db_user: str
+  db_password: password?
+  redis_host: str
+  redis_port: int
+  redis_user: str?
+  redis_password: password?
+  use_radius: bool
+  use_topology: bool
+  use_firmware: bool
+  use_monitoring: bool
+  metric_collection: bool
+  secret_key: password?

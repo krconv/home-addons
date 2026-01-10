@@ -1,0 +1,74 @@
+#!/usr/bin/with-contenv bashio
+set -euo pipefail
+
+# shellcheck disable=SC1091
+. /run/openwisp/env
+
+cd /opt/openwisp
+
+bashio::log.info "Running migrations and collectstatic..."
+python /opt/openwisp/manage.py migrate --noinput
+
+# Ensure SSH key for device connections
+if [ ! -f "${SSH_PRIVATE_KEY_PATH:-/home/openwisp/.ssh/id_ed25519}" ]; then
+  mkdir -p "$(dirname "${SSH_PRIVATE_KEY_PATH:-/home/openwisp/.ssh/id_ed25519}")"
+  ssh-keygen -t ed25519 -f "${SSH_PRIVATE_KEY_PATH:-/home/openwisp/.ssh/id_ed25519}" -N "" || true
+fi
+
+if [ ! -f /data/.openwisp_initialized ]; then
+  python /opt/openwisp/load_init_data.py || true
+  touch /data/.openwisp_initialized
+fi
+python /opt/openwisp/collectstatic.py
+
+bashio::log.info "Ensuring admin user..."
+python - <<'PY'
+import os
+
+import django
+
+django.setup()
+from django.contrib.auth import get_user_model  # noqa: E402
+
+User = get_user_model()
+email = os.environ.get("ADMIN_EMAIL")
+password = os.environ.get("ADMIN_PASSWORD")
+
+user = User.objects.filter(email=email).first()
+created = False
+if user is None:
+    user = User(username=email, email=email)
+    created = True
+
+user.is_staff = True
+user.is_superuser = True
+user.set_password(password)
+user.save()
+
+print("Admin user created." if created else "Admin user updated.")
+PY
+
+bashio::log.info "Cleaning duplicate notification settings..."
+python - <<'PY'
+import django
+django.setup()
+
+from django.db.models import Count
+
+from openwisp_notifications.models import NotificationSetting
+
+duplicates = (
+    NotificationSetting.objects.values("organization_id", "type", "user_id")
+    .annotate(total=Count("id"))
+    .filter(total__gt=1)
+)
+
+for entry in duplicates:
+    qs = NotificationSetting.objects.filter(
+        organization_id=entry["organization_id"],
+        type=entry["type"],
+        user_id=entry["user_id"],
+    ).order_by("id")
+    keep_id = qs.first().id
+    qs.exclude(id=keep_id).delete()
+PY

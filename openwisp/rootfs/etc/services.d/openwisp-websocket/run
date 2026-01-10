@@ -1,0 +1,9 @@
+#!/usr/bin/with-contenv bashio
+set -euo pipefail
+
+# shellcheck disable=SC1091
+. /run/openwisp/env
+
+cd /opt/openwisp
+
+exec daphne -b 0.0.0.0 -p "${WEBSOCKET_APP_PORT}" --proxy-headers openwisp.asgi:application --access-log -
