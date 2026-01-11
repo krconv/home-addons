@@ -7,7 +7,9 @@ LABEL io.hass.type="addon" \
       io.hass.version="${BUILD_VERSION}" \
       io.hass.arch="${BUILD_ARCH}"
 
-ENV PYTHONUNBUFFERED=1 \
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
 ARG OPENWISP_DOCKER_REPO=https://github.com/openwisp/docker-openwisp.git
@@ -60,9 +62,8 @@ RUN apt-get update && \
 
 WORKDIR /opt/openwisp
 
-RUN git clone --depth 1 --branch "${OPENWISP_DOCKER_REF}" "${OPENWISP_DOCKER_REPO}" /tmp/docker-openwisp
-
-RUN python3 -m pip install --upgrade pip && \
+RUN git clone --depth 1 --branch "${OPENWISP_DOCKER_REF}" "${OPENWISP_DOCKER_REPO}" /tmp/docker-openwisp && \
+    python3 -m pip install --upgrade pip && \
     python3 -m pip install "${DJANGO_SOURCE}" && \
     python3 -m pip install -r /tmp/docker-openwisp/images/openwisp_base/requirements.txt && \
     python3 -m pip install \
@@ -78,10 +79,8 @@ RUN python3 -m pip install --upgrade pip && \
       django-nested-admin \
       django-private-storage \
       dj-rest-auth && \
-    python3 -m pip install -r /tmp/docker-openwisp/images/openwisp_nginx/requirements.txt
-
-# OpenWISP runtime project (from docker-openwisp common)
-RUN cp -r /tmp/docker-openwisp/images/common/* /opt/openwisp/ && \
+    python3 -m pip install -r /tmp/docker-openwisp/images/openwisp_nginx/requirements.txt && \
+    cp -r /tmp/docker-openwisp/images/common/* /opt/openwisp/ && \
     cp /tmp/docker-openwisp/images/openwisp_dashboard/module_settings.py /opt/openwisp/openwisp/module_settings.py && \
     cp /tmp/docker-openwisp/images/openwisp_dashboard/urls.py /opt/openwisp/openwisp/urls.py && \
     cp /tmp/docker-openwisp/images/openwisp_dashboard/load_init_data.py /opt/openwisp/ && \
@@ -93,5 +92,3 @@ RUN cp -r /tmp/docker-openwisp/images/common/* /opt/openwisp/ && \
     rm -rf /tmp/docker-openwisp
 
 COPY rootfs/ /
-
-EXPOSE 80

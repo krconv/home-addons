@@ -11,54 +11,14 @@ ln -sfn /data/logs /opt/openwisp/logs
 ln -sfn /opt/openwisp/static /opt/openwisp/public/static
 ln -sfn /opt/openwisp/media /opt/openwisp/public/media
 
-CONFIG_SOURCE="bashio"
-if [ -f /data/options.json ] && [ -z "${SUPERVISOR_TOKEN:-}" ]; then
-  CONFIG_SOURCE="file"
-fi
-
 get_config() {
   local key="$1"
-  if [ "$CONFIG_SOURCE" = "bashio" ]; then
-    bashio::config "$key"
-    return
-  fi
-  python - "$key" <<'PY'
-import json
-import sys
-
-key = sys.argv[1]
-with open("/data/options.json", "r", encoding="utf-8") as handle:
-    data = json.load(handle)
-value = data.get(key)
-if value is None:
-    sys.exit(1)
-if isinstance(value, bool):
-    print("true" if value else "false")
-elif isinstance(value, (dict, list)):
-    print(json.dumps(value))
-else:
-    print(value)
-PY
+  bashio::config "$key"
 }
 
 has_config() {
   local key="$1"
-  if [ "$CONFIG_SOURCE" = "bashio" ]; then
-    bashio::config.has_value "$key"
-    return
-  fi
-  python - "$key" <<'PY'
-import json
-import sys
-
-key = sys.argv[1]
-with open("/data/options.json", "r", encoding="utf-8") as handle:
-    data = json.load(handle)
-value = data.get(key)
-if value is None or value == "":
-    sys.exit(1)
-sys.exit(0)
-PY
+  bashio::config.has_value "$key"
 }
 
 get_config_default() {
