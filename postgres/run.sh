@@ -14,24 +14,11 @@ if [ -z "$POSTGRES_PASSWORD" ] || [ "$POSTGRES_PASSWORD" = "null" ]; then
 fi
 
 run_as_postgres() {
-  if command -v runuser >/dev/null 2>&1; then
-    runuser -u postgres -- "$@"
-    return
-  fi
-
-  local cmd
-  cmd="$(printf "%q " "$@")"
-  su -s /bin/sh postgres -c "$cmd"
+  gosu postgres "$@"
 }
 
 exec_as_postgres() {
-  if command -v runuser >/dev/null 2>&1; then
-    exec runuser -u postgres -- "$@"
-  fi
-
-  local cmd
-  cmd="$(printf "%q " "$@")"
-  exec su -s /bin/sh postgres -c "$cmd"
+  exec gosu postgres "$@"
 }
 
 write_configs() {

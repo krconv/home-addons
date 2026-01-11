@@ -1,0 +1,30 @@
+name: Redis
+slug: redis
+version: "8.4.0"
+description: In-memory data structure store
+url: https://redis.io/
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+startup: services
+boot: auto
+init: false
+ports:
+  6379/tcp: null
+ports_description:
+  6379/tcp: Redis (default 6379)
+options:
+  redis_password: null
+  appendonly: true
+  save:
+    - "900 1"
+    - "300 10"
+    - "60 10000"
+schema:
+  redis_password: password
+  appendonly: bool
+  save:
+    - str

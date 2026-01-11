@@ -19,7 +19,7 @@ ENV LANG=C.UTF-8 \
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      ca-certificates gnupg wget && \
+      ca-certificates gnupg gosu wget && \
     echo "deb http://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo ${VERSION_CODENAME})-pgdg main" \
       > /etc/apt/sources.list.d/pgdg.list && \
     wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | \
