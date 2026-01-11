@@ -52,9 +52,9 @@ if [ -z "${LANGUAGE_CODE}" ] || [ "${LANGUAGE_CODE}" = "null" ]; then
   LANGUAGE_CODE="en-gb"
 fi
 DEBUG=$(get_config 'debug')
-ALLOWED_HOSTS=$(get_config_default 'allowed_hosts' '*')
-DOMAIN=$(get_config_default 'domain' 'localhost')
-CORS_HOSTS=$(get_config_default 'cors_hosts' '*')
+ALLOWED_HOSTS=$(get_config_default 'host_allowlist' '*')
+DOMAIN=$(get_config_default 'public_domain' 'localhost')
+CORS_HOSTS=$(get_config_default 'cors_allowlist' '*')
 
 DB_ENGINE=$(get_config_default 'db_engine' 'django.contrib.gis.db.backends.postgis')
 DB_HOST=$(get_config 'db_host')

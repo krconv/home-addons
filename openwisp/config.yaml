@@ -1,6 +1,6 @@
 name: OpenWISP
 slug: openwisp
-version: "25.10.7"
+version: "25.10.8"
 description: OpenWISP add-on (single container, upstream docker-openwisp)
 url: https://openwisp.org/
 arch: [aarch64, amd64, armv7, armhf, i386]
@@ -18,9 +18,9 @@ options:
   admin_email: null
   admin_password: null
   debug: false
-  allowed_hosts: "*"
-  domain: "localhost"
-  cors_hosts: "http://localhost,http://127.0.0.1"
+  host_allowlist: "*"
+  public_domain: "localhost"
+  cors_allowlist: "*"
   db_engine: "django.contrib.gis.db.backends.postgis"
   db_host: null
   db_port: 5432
@@ -41,9 +41,9 @@ schema:
   admin_email: email
   admin_password: password
   debug: bool
-  allowed_hosts: str
-  domain: str
-  cors_hosts: str
+  host_allowlist: str
+  public_domain: str
+  cors_allowlist: str
   db_engine: str
   db_host: str
   db_port: port
