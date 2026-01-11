@@ -53,8 +53,8 @@ if [ -z "${LANGUAGE_CODE}" ] || [ "${LANGUAGE_CODE}" = "null" ]; then
 fi
 DEBUG=$(get_config 'debug')
 ALLOWED_HOSTS=$(get_config_default 'allowed_hosts' '*')
-DASHBOARD_DOMAIN=$(get_config_default 'dashboard_domain' 'localhost')
-API_DOMAIN=$(get_config_default 'api_domain' 'localhost')
+DOMAIN=$(get_config_default 'domain' 'localhost')
+CORS_HOSTS=$(get_config_default 'cors_hosts' '*')
 
 DB_ENGINE=$(get_config_default 'db_engine' 'django.contrib.gis.db.backends.postgis')
 DB_HOST=$(get_config 'db_host')
@@ -102,8 +102,8 @@ export TZ="${TIME_ZONE}"
 export DJANGO_LANGUAGE_CODE="${LANGUAGE_CODE}"
 export DEBUG_MODE="${DEBUG}"
 export DJANGO_ALLOWED_HOSTS="${ALLOWED_HOSTS}"
-export DASHBOARD_DOMAIN="${DASHBOARD_DOMAIN}"
-export API_DOMAIN="${API_DOMAIN}"
+export DASHBOARD_DOMAIN="${DOMAIN}"
+export API_DOMAIN="${DOMAIN}"
 export MODULE_NAME="dashboard"
 
 export DB_ENGINE="${DB_ENGINE}"
@@ -129,7 +129,13 @@ export CELERY_BROKER_URL="${REDIS_BASE_URL}/2"
 
 export DJANGO_SECRET_KEY="${SECRET_KEY}"
 export DJANGO_LOG_LEVEL="INFO"
-export DJANGO_CORS_HOSTS="http://localhost,http://127.0.0.1"
+if [ "${CORS_HOSTS}" = "*" ]; then
+  export DJANGO_CORS_ALLOW_ALL_ORIGINS="True"
+  export DJANGO_CORS_HOSTS=""
+else
+  export DJANGO_CORS_ALLOW_ALL_ORIGINS="False"
+  export DJANGO_CORS_HOSTS="${CORS_HOSTS}"
+fi
 export DJANGO_SENTRY_DSN=""
 export DJANGO_LEAFET_CENTER_X_AXIS="0"
 export DJANGO_LEAFET_CENTER_Y_AXIS="0"
@@ -214,6 +220,6 @@ export UWSGI_THREADS="2"
 export UWSGI_LISTEN="128"
 export CONTAINER_PORT="8000"
 
-export DJANGO_SETTINGS_MODULE="openwisp.settings"
+export DJANGO_SETTINGS_MODULE="openwisp.settings_addon"
 export PYTHONPATH="/opt/openwisp"
 ENV
