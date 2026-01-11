@@ -1,0 +1,22 @@
+name: PostgreSQL
+slug: postgres
+version: "17.7.0"
+description: Reliable open source object-relational database
+url: https://www.postgresql.org/
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+startup: services
+boot: auto
+init: false
+ports:
+  5432/tcp: null
+ports_description:
+  5432/tcp: PostgreSQL (default 5432)
+options:
+  postgres_password: null
+schema:
+  postgres_password: password
