@@ -43,8 +43,14 @@ fi
 
 ADMIN_EMAIL=$(get_config 'admin_email')
 ADMIN_PASSWORD=$(get_config 'admin_password')
-TIME_ZONE=$(get_config 'time_zone')
-LANGUAGE_CODE=$(get_config 'language_code')
+TIME_ZONE="$(bashio::info.timezone || true)"
+if [ -z "${TIME_ZONE}" ]; then
+  TIME_ZONE="UTC"
+fi
+LANGUAGE_CODE="$(bashio::info.language || true)"
+if [ -z "${LANGUAGE_CODE}" ]; then
+  LANGUAGE_CODE="en-gb"
+fi
 DEBUG=$(get_config 'debug')
 ALLOWED_HOSTS=$(get_config_default 'allowed_hosts' '*')
 DASHBOARD_DOMAIN=$(get_config_default 'dashboard_domain' 'localhost')

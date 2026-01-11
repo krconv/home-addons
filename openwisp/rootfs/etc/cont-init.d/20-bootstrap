@@ -7,7 +7,7 @@ set -euo pipefail
 cd /opt/openwisp
 
 bashio::log.info "Running migrations and collectstatic..."
-python /opt/openwisp/manage.py migrate --noinput
+python3 /opt/openwisp/manage.py migrate --noinput
 
 # Ensure SSH key for device connections
 if [ ! -f "${SSH_PRIVATE_KEY_PATH:-/home/openwisp/.ssh/id_ed25519}" ]; then
@@ -16,13 +16,13 @@ if [ ! -f "${SSH_PRIVATE_KEY_PATH:-/home/openwisp/.ssh/id_ed25519}" ]; then
 fi
 
 if [ ! -f /data/.openwisp_initialized ]; then
-  python /opt/openwisp/load_init_data.py || true
+  python3 /opt/openwisp/load_init_data.py || true
   touch /data/.openwisp_initialized
 fi
-python /opt/openwisp/collectstatic.py
+python3 /opt/openwisp/collectstatic.py
 
 bashio::log.info "Ensuring admin user..."
-python - <<'PY'
+python3 - <<'PY'
 import os
 
 import django
@@ -49,7 +49,7 @@ print("Admin user created." if created else "Admin user updated.")
 PY
 
 bashio::log.info "Cleaning duplicate notification settings..."
-python - <<'PY'
+python3 - <<'PY'
 import django
 django.setup()
 
