@@ -127,7 +127,8 @@ Only needed when you’re not using defaults or need extra build options. ([Home
 
 - `name` (string)
 - `version` (string) — if using `image`, must match the image tag used
-- `version` should track the packaged software version; also pin upstream package versions in the `Dockerfile` so rebuilds don’t auto-upgrade.
+- `version` format: `x.y.z`, where `x.y` matches the upstream software version and `z` is the add-on patch release (e.g., `1.2.3` is the third add-on release for upstream `1.2`).
+- Do not mention add-on version numbers in add-on documentation (`README.md`, `DOCS.md`).
 - `slug` (string) — unique within the repository and URI-friendly
 - `description` (string)
 - `arch` (list) — `armhf`, `armv7`, `aarch64`, `amd64`, `i386` ([Home Assistant Developer Docs][4])

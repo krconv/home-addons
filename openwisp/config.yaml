@@ -1,6 +1,6 @@
 name: OpenWISP
 slug: openwisp
-version: "1.2.0b0"
+version: "25.10.1"
 description: OpenWISP add-on (single container, upstream docker-openwisp)
 url: https://openwisp.org/
 arch: [aarch64, amd64, armv7, armhf, i386]
@@ -14,8 +14,8 @@ panel_title: OpenWISP
 ports:
   80/tcp: 80
 options:
-  admin_email: "admin@example.com"
-  admin_password: "admin"
+  admin_email: null
+  admin_password: null
   time_zone: "UTC"
   language_code: "en-gb"
   debug: false
@@ -23,15 +23,15 @@ options:
   dashboard_domain: "localhost"
   api_domain: "localhost"
   db_engine: "django.contrib.gis.db.backends.postgis"
-  db_host: ""
+  db_host: null
   db_port: 5432
   db_name: "openwisp"
   db_user: "openwisp"
-  db_password: ""
-  redis_host: ""
+  db_password: null
+  redis_host: null
   redis_port: 6379
   redis_user: ""
-  redis_password: ""
+  redis_password: null
   use_radius: false
   use_topology: false
   use_firmware: false
@@ -39,7 +39,7 @@ options:
   metric_collection: false
   secret_key: ""
 schema:
-  admin_email: str
+  admin_email: email
   admin_password: password
   time_zone: str
   language_code: str
@@ -49,12 +49,12 @@ schema:
   api_domain: str
   db_engine: str
   db_host: str
-  db_port: int
+  db_port: port
   db_name: str
   db_user: str
   db_password: password?
   redis_host: str
-  redis_port: int
+  redis_port: port
   redis_user: str?
   redis_password: password?
   use_radius: bool
