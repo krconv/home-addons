@@ -10,7 +10,8 @@ LABEL io.hass.type="addon" \
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PIP_BREAK_SYSTEM_PACKAGES=1
 
 ARG OPENWISP_DOCKER_REPO=https://github.com/openwisp/docker-openwisp.git
 ARG OPENWISP_DOCKER_REF=25.10.1
