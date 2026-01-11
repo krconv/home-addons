@@ -59,6 +59,10 @@ RUN apt-get update && \
     nginx \
     openssh-client \
     openssl && \
+    if ! getent group nginx >/dev/null 2>&1; then addgroup --system nginx; fi && \
+    if ! id -u nginx >/dev/null 2>&1; then \
+      adduser --system --ingroup nginx --no-create-home --shell /usr/sbin/nologin nginx; \
+    fi && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/openwisp

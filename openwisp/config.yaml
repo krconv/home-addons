@@ -1,12 +1,13 @@
 name: OpenWISP
 slug: openwisp
-version: "25.10.5"
+version: "25.10.6"
 description: OpenWISP add-on (single container, upstream docker-openwisp)
 url: https://openwisp.org/
 arch: [aarch64, amd64, armv7, armhf, i386]
 startup: services
 boot: auto
 init: false
+hassio_api: true
 panel_icon: mdi:wifi
 panel_title: OpenWISP
 ports:
