@@ -10,4 +10,4 @@ mkdir -p /etc/nginx/conf.d
 
 cd /etc/nginx
 
-exec sh /etc/nginx/init_command.sh
+exec bash /etc/nginx/init_command.sh

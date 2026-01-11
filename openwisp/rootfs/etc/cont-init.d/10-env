@@ -47,8 +47,8 @@ TIME_ZONE="$(bashio::info.timezone || true)"
 if [ -z "${TIME_ZONE}" ]; then
   TIME_ZONE="UTC"
 fi
-LANGUAGE_CODE="$(bashio::info.language || true)"
-if [ -z "${LANGUAGE_CODE}" ]; then
+LANGUAGE_CODE="$(bashio::core 'core.info.language' '.language' || true)"
+if [ -z "${LANGUAGE_CODE}" ] || [ "${LANGUAGE_CODE}" = "null" ]; then
   LANGUAGE_CODE="en-gb"
 fi
 DEBUG=$(get_config 'debug')
