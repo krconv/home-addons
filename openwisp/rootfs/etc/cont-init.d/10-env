@@ -73,6 +73,7 @@ USE_TOPOLOGY=$(get_config_default 'use_topology' 'false')
 USE_FIRMWARE=$(get_config_default 'use_firmware' 'false')
 USE_MONITORING=$(get_config_default 'use_monitoring' 'false')
 METRIC_COLLECTION=$(get_config_default 'metric_collection' 'false')
+FREERADIUS_ALLOWED_HOSTS=$(get_config_default 'freeradius_allowed_hosts' '127.0.0.1/32')
 
 SECRET_KEY=$(get_config_default 'secret_key' '')
 if [ -z "$SECRET_KEY" ]; then
@@ -142,7 +143,7 @@ export DJANGO_LEAFET_CENTER_Y_AXIS="0"
 export DJANGO_LEAFET_ZOOM="1"
 export DJANGO_X509_DEFAULT_CERT_VALIDITY="1825"
 export DJANGO_X509_DEFAULT_CA_VALIDITY="3650"
-export OPENWISP_RADIUS_FREERADIUS_ALLOWED_HOSTS="127.0.0.1/32"
+export OPENWISP_RADIUS_FREERADIUS_ALLOWED_HOSTS="${FREERADIUS_ALLOWED_HOSTS}"
 export X509_NAME_CA="default"
 export X509_NAME_CERT="default"
 export X509_COUNTRY_CODE="IN"

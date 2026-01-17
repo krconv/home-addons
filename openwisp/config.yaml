@@ -1,6 +1,6 @@
 name: OpenWISP
 slug: openwisp
-version: "25.10.8"
+version: "25.10.9"
 description: OpenWISP add-on (single container, upstream docker-openwisp)
 url: https://openwisp.org/
 arch: [aarch64, amd64, armv7, armhf, i386]
@@ -26,7 +26,7 @@ options:
   db_port: 5432
   db_name: "openwisp"
   db_user: "openwisp"
-  db_password: "" 
+  db_password: ""
   redis_host: null
   redis_port: 6379
   redis_user: ""
@@ -36,6 +36,7 @@ options:
   use_firmware: false
   use_monitoring: false
   metric_collection: false
+  freeradius_allowed_hosts: "127.0.0.1/32"
   secret_key: ""
 schema:
   admin_email: email
@@ -59,4 +60,5 @@ schema:
   use_firmware: bool
   use_monitoring: bool
   metric_collection: bool
+  freeradius_allowed_hosts: str
   secret_key: password?

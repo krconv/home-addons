@@ -1,0 +1,37 @@
+name: FreeRADIUS
+slug: freeradius
+version: "3.2.1"
+description: FreeRADIUS server for OpenWISP (REST integration)
+url: https://freeradius.org/
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+startup: services
+boot: auto
+init: false
+ports:
+  1812/udp: null
+  1813/udp: null
+  3799/udp: null
+  18120/udp: null
+ports_description:
+  1812/udp: RADIUS auth (default 1812)
+  1813/udp: RADIUS accounting (default 1813)
+  3799/udp: RADIUS CoA (default 3799)
+  18120/udp: RADIUS status (default 18120)
+options:
+  openwisp_url: null
+  openwisp_org_uuid: null
+  openwisp_radius_token: null
+  clients: []
+schema:
+  openwisp_url: str
+  openwisp_org_uuid: str
+  openwisp_radius_token: password
+  clients:
+    - name: str
+      ipaddr: str
+      secret: password

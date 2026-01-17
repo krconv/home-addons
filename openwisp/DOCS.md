@@ -20,6 +20,7 @@ This add-on runs OpenWISP on the Home Assistant Supervisor network and requires 
 - `redis_user`: Redis user (optional).
 - `redis_password`: Redis password (optional).
 - `use_radius`, `use_topology`, `use_firmware`, `use_monitoring`, `metric_collection`: Feature toggles.
+- `freeradius_allowed_hosts`: Comma-separated list of host IPs/subnets allowed to call the OpenWISP RADIUS API (authorize, accounting, postauth). Defaults to `127.0.0.1/32`.
 - `debug`: Enable Django debug mode. Defaults to `false`.
 - `secret_key`: Optional Django secret key; auto-generated if empty.
 
