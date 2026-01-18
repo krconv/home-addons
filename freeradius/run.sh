@@ -146,8 +146,6 @@ write_site_default() {
 # Managed by the Home Assistant FreeRADIUS add-on
 
 server default {
-  api_token_header = "Authorization: Bearer ${OPENWISP_ORG_UUID} ${OPENWISP_RADIUS_TOKEN}"
-
   listen {
     type = auth
     ipaddr = *
@@ -162,7 +160,7 @@ server default {
 
   authorize {
     update control {
-      &REST-HTTP-Header += "\${...api_token_header}"
+      &REST-HTTP-Header += "Authorization: Bearer ${OPENWISP_ORG_UUID} ${OPENWISP_RADIUS_TOKEN}"
     }
     rest
   }
@@ -171,13 +169,13 @@ server default {
 
   post-auth {
     update control {
-      &REST-HTTP-Header += "\${...api_token_header}"
+      &REST-HTTP-Header += "Authorization: Bearer ${OPENWISP_ORG_UUID} ${OPENWISP_RADIUS_TOKEN}"
     }
     rest
 
     Post-Auth-Type REJECT {
       update control {
-        &REST-HTTP-Header += "\${...api_token_header}"
+        &REST-HTTP-Header += "Authorization: Bearer ${OPENWISP_ORG_UUID} ${OPENWISP_RADIUS_TOKEN}"
       }
       rest
     }
@@ -189,7 +187,7 @@ server default {
 
   accounting {
     update control {
-      &REST-HTTP-Header += "\${...api_token_header}"
+      &REST-HTTP-Header += "Authorization: Bearer ${OPENWISP_ORG_UUID} ${OPENWISP_RADIUS_TOKEN}"
     }
     rest
   }
