@@ -7,7 +7,7 @@ RADIUS_DIR="/data/freeradius"
 OPENWISP_URL="$(bashio::config 'openwisp_url' || true)"
 OPENWISP_ORG_UUID="$(bashio::config 'openwisp_org_uuid' || true)"
 OPENWISP_RADIUS_TOKEN="$(bashio::config 'openwisp_radius_token' || true)"
-CLIENTS_JSON="$(bashio::config 'clients' || true)"
+CLIENTS_STREAM="$(bashio::config 'clients' || true)"
 
 if [ -z "$OPENWISP_URL" ] || [ "$OPENWISP_URL" = "null" ]; then
   bashio::log.fatal "openwisp_url is required"
@@ -24,16 +24,20 @@ if [ -z "$OPENWISP_RADIUS_TOKEN" ] || [ "$OPENWISP_RADIUS_TOKEN" = "null" ]; the
   exit 1
 fi
 
-if [ -z "$CLIENTS_JSON" ] || [ "$CLIENTS_JSON" = "null" ]; then
+if [ -z "$CLIENTS_STREAM" ] || [ "$CLIENTS_STREAM" = "null" ]; then
   bashio::log.fatal "clients are required"
   exit 1
 fi
 
-client_count="$(printf "%s" "$CLIENTS_JSON" | jq 'length')"
+client_count="$(printf "%s\n" "$CLIENTS_STREAM" | jq -s 'length')"
 if [ "$client_count" -eq 0 ]; then
   bashio::log.fatal "clients list cannot be empty"
   exit 1
 fi
+
+bashio::log.debug "OpenWISP URL: ${OPENWISP_URL}"
+bashio::log.debug "OpenWISP Org UUID: ${OPENWISP_ORG_UUID}"
+bashio::log.debug "Configured clients: ${client_count}"
 
 init_config() {
   if [ -d "$RADIUS_DIR" ]; then
@@ -92,6 +96,8 @@ write_clients() {
     name_escaped="$(escape_value "$name")"
     secret_escaped="$(escape_value "$secret")"
 
+    bashio::log.debug "Client ${index}: name=${name} ipaddr=${ipaddr}"
+
     cat >> "$clients_conf" <<EOF
 client ${client_id} {
   ipaddr = ${ipaddr}
@@ -100,7 +106,7 @@ client ${client_id} {
 }
 
 EOF
-  done < <(printf "%s" "$CLIENTS_JSON" | jq -r '.[] | @base64')
+  done < <(printf "%s\n" "$CLIENTS_STREAM" | jq -c '.' | jq -r '@base64')
 }
 
 write_rest_module() {
