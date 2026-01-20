@@ -56,6 +56,12 @@ RUN apt-get update && \
     libxml2-dev \
     libxslt-dev \
     gettext \
+    libcairo2 \
+    libgdk-pixbuf-2.0-0 \
+    libglib2.0-0 \
+    libharfbuzz0b \
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
     nginx \
     openssh-client \
     openssl && \
