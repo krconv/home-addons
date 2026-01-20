@@ -1,10 +1,10 @@
 #!/usr/bin/with-contenv bashio
 set -euo pipefail
 
-mkdir -p /run/openwisp /data /data/static /data/media /data/private /data/logs /data/ssh
+mkdir -p /run/openwisp /run/openwisp/static /data /data/media /data/private /data/logs /data/ssh
 mkdir -p /opt/openwisp/public
 
-ln -sfn /data/static /opt/openwisp/static
+ln -sfn /run/openwisp/static /opt/openwisp/static
 ln -sfn /data/media /opt/openwisp/media
 ln -sfn /data/private /opt/openwisp/private
 ln -sfn /data/logs /opt/openwisp/logs
@@ -74,6 +74,13 @@ USE_FIRMWARE=$(get_config_default 'use_firmware' 'false')
 USE_MONITORING=$(get_config_default 'use_monitoring' 'false')
 METRIC_COLLECTION=$(get_config_default 'metric_collection' 'false')
 FREERADIUS_ALLOWED_HOSTS=$(get_config_default 'freeradius_allowed_hosts' '127.0.0.1/32')
+
+INFLUXDB_USER=$(get_config_default 'influxdb_user' 'admin')
+INFLUXDB_PASS=$(get_config_default 'influxdb_pass' 'admin')
+INFLUXDB_NAME=$(get_config_default 'influxdb_name' 'openwisp')
+INFLUXDB_HOST=$(get_config_default 'influxdb_host' 'influxdb')
+INFLUXDB_PORT=$(get_config_default 'influxdb_port' '8086')
+INFLUXDB_DEFAULT_RETENTION_POLICY=$(get_config_default 'influxdb_retention_policy' '26280h0m0s')
 
 SECRET_KEY=$(get_config_default 'secret_key' '')
 if [ -z "$SECRET_KEY" ]; then
@@ -169,12 +176,12 @@ export EMAIL_DJANGO_DEFAULT="${ADMIN_EMAIL}"
 export SSH_PRIVATE_KEY_PATH="/data/ssh/id_ed25519"
 export SSH_PUBLIC_KEY_PATH="/data/ssh/id_ed25519.pub"
 
-export INFLUXDB_USER="admin"
-export INFLUXDB_PASS="admin"
-export INFLUXDB_NAME="openwisp"
-export INFLUXDB_HOST="influxdb"
-export INFLUXDB_PORT="8086"
-export INFLUXDB_DEFAULT_RETENTION_POLICY="26280h0m0s"
+export INFLUXDB_USER="${INFLUXDB_USER}"
+export INFLUXDB_PASS="${INFLUXDB_PASS}"
+export INFLUXDB_NAME="${INFLUXDB_NAME}"
+export INFLUXDB_HOST="${INFLUXDB_HOST}"
+export INFLUXDB_PORT="${INFLUXDB_PORT}"
+export INFLUXDB_DEFAULT_RETENTION_POLICY="${INFLUXDB_DEFAULT_RETENTION_POLICY}"
 
 export SSL_CERT_MODE="False"
 export NGINX_PORT="80"

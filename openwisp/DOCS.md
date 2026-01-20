@@ -21,6 +21,12 @@ This add-on runs OpenWISP on the Home Assistant Supervisor network and requires 
 - `redis_password`: Redis password (optional).
 - `use_radius`, `use_topology`, `use_firmware`, `use_monitoring`, `metric_collection`: Feature toggles.
 - `freeradius_allowed_hosts`: Comma-separated list of host IPs/subnets allowed to call the OpenWISP RADIUS API (authorize, accounting, postauth). Defaults to `127.0.0.1/32`.
+- `influxdb_user`: InfluxDB user. Defaults to `admin`.
+- `influxdb_pass`: InfluxDB password. Defaults to `admin`.
+- `influxdb_name`: InfluxDB database name. Defaults to `openwisp`.
+- `influxdb_host`: InfluxDB host. Defaults to `influxdb`.
+- `influxdb_port`: InfluxDB port. Defaults to `8086`.
+- `influxdb_retention_policy`: InfluxDB default retention policy. Defaults to `26280h0m0s`.
 - `debug`: Enable Django debug mode. Defaults to `false`.
 - `secret_key`: Optional Django secret key; auto-generated if empty.
 
