@@ -1,9 +1,8 @@
 name: FreeRADIUS
 slug: freeradius
-version: "3.2.3"
+version: "3.2.4"
 description: FreeRADIUS server for OpenWISP (REST integration)
 url: https://freeradius.org/
-# image: ghcr.io/krconv/home-addons/freeradius
 arch:
   - aarch64
   - amd64

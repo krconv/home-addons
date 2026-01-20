@@ -113,30 +113,32 @@ write_rest_module() {
   cat > "$RADIUS_DIR/mods-enabled/rest" <<EOF
 # Managed by the Home Assistant FreeRADIUS add-on
 
-connect_uri = "${OPENWISP_URL}"
+rest {
+  connect_uri = "${OPENWISP_URL}"
 
-authorize {
+  authorize {
     uri = "${OPENWISP_URL}/api/v1/freeradius/authorize/"
     method = 'post'
     body = 'json'
     data = '{"username": "%{User-Name}", "password": "%{User-Password}", "called_station_id": "%{Called-Station-ID}", "calling_station_id": "%{Calling-Station-ID}"}'
-}
+  }
 
-# this section can be left empty
-authenticate {}
+  # this section can be left empty
+  authenticate {}
 
-post-auth {
+  post-auth {
     uri = "${OPENWISP_URL}/api/v1/freeradius/postauth/"
     method = 'post'
     body = 'json'
     data = '{"username": "%{User-Name}", "password": "%{User-Password}", "reply": "%{reply:Packet-Type}", "called_station_id": "%{Called-Station-ID}", "calling_station_id": "%{Calling-Station-ID}"}'
-}
+  }
 
-accounting {
+  accounting {
     uri = "${OPENWISP_URL}/api/v1/freeradius/accounting/"
     method = 'post'
     body = 'json'
     data = '{"status_type": "%{Acct-Status-Type}", "session_id": "%{Acct-Session-Id}", "unique_id": "%{Acct-Unique-Session-Id}", "username": "%{User-Name}", "realm": "%{Realm}", "nas_ip_address": "%{NAS-IP-Address}", "nas_port_id": "%{NAS-Port}", "nas_port_type": "%{NAS-Port-Type}", "session_time": "%{Acct-Session-Time}", "authentication": "%{Acct-Authentic}", "input_octets": "%{Acct-Input-Octets}", "output_octets": "%{Acct-Output-Octets}", "called_station_id": "%{Called-Station-Id}", "calling_station_id": "%{Calling-Station-Id}", "terminate_cause": "%{Acct-Terminate-Cause}", "service_type": "%{Service-Type}", "framed_protocol": "%{Framed-Protocol}", "framed_ip_address": "%{Framed-IP-Address}"}'
+  }
 }
 EOF
 }
