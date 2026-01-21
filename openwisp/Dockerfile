@@ -13,84 +13,6 @@ ENV LANG=C.UTF-8 \
     PIP_NO_CACHE_DIR=1 \
     PIP_BREAK_SYSTEM_PACKAGES=1
 
-# Upstream-aligned defaults for build-time collectstatic.
-ENV DASHBOARD_APP_SERVICE=dashboard \
-    PYTHONUNBUFFERED=1 \
-    TZ=UTC \
-    DEBUG_MODE=False \
-    REDIS_HOST=redis \
-    REDIS_PORT=6379 \
-    REDIS_PASS= \
-    DB_ENGINE=django.contrib.gis.db.backends.postgis \
-    DB_NAME=openwisp_db \
-    DB_USER=admin \
-    DB_PASS=admin \
-    DB_HOST=postgres \
-    DB_PORT=5432 \
-    DB_SSLMODE=disable \
-    DB_SSLKEY=None \
-    DB_SSLCERT=None \
-    DB_SSLROOTCERT=None \
-    DB_OPTIONS={} \
-    INFLUXDB_USER=admin \
-    INFLUXDB_PASS=admin \
-    INFLUXDB_NAME=openwisp \
-    INFLUXDB_HOST=influxdb \
-    INFLUXDB_PORT=8086 \
-    INFLUXDB_DEFAULT_RETENTION_POLICY=26280h0m0s \
-    EMAIL_BACKEND=djcelery_email.backends.CeleryEmailBackend \
-    EMAIL_HOST=postfix \
-    EMAIL_HOST_PORT=25 \
-    EMAIL_HOST_USER="" \
-    EMAIL_HOST_PASSWORD="" \
-    EMAIL_HOST_TLS=False \
-    EMAIL_TIMEOUT=10 \
-    EMAIL_DJANGO_DEFAULT=example@example.org \
-    DJANGO_LOG_LEVEL=ERROR \
-    DJANGO_LANGUAGE_CODE=en-gb \
-    OPENWISP_RADIUS_FREERADIUS_ALLOWED_HOSTS=172.18.0.0/16 \
-    DJANGO_X509_DEFAULT_CERT_VALIDITY=1825 \
-    DJANGO_X509_DEFAULT_CA_VALIDITY=3650 \
-    DJANGO_SECRET_KEY=DEFAULT_BAD_KEY \
-    DJANGO_CORS_HOSTS=http://localhost \
-    DJANGO_SENTRY_DSN="" \
-    DJANGO_LEAFET_CENTER_X_AXIS=0 \
-    DJANGO_LEAFET_CENTER_Y_AXIS=0 \
-    DJANGO_LEAFET_ZOOM=1 \
-    NGINX_CLIENT_BODY_SIZE=30 \
-    DASHBOARD_APP_PORT=8000 \
-    API_APP_PORT=8001 \
-    WEBSOCKET_APP_PORT=8002 \
-    DASHBOARD_INTERNAL=dashboard.internal \
-    API_INTERNAL=api.internal \
-    USE_OPENWISP_RADIUS=True \
-    USE_OPENWISP_TOPOLOGY=True \
-    USE_OPENWISP_FIRMWARE=True \
-    USE_OPENWISP_MONITORING=True \
-    USE_OPENWISP_CELERY_TASK_ROUTES_DEFAULTS=True \
-    METRIC_COLLECTION=True \
-    SSL_CERT_MODE=Yes \
-    NGINX_HTTP2=http2 \
-    NGINX_ADMIN_ALLOW_NETWORK=all \
-    NGINX_HTTPS_ALLOWED_IPS=all \
-    NGINX_HTTP_ALLOW=False \
-    NGINX_SERVER_NAME_HASH_BUCKET=32 \
-    NGINX_SSL_CONFIG='' \
-    NGINX_IP6_STRING='' \
-    NGINX_IP6_80_STRING='' \
-    NGINX_80_CONFIG='' \
-    NGINX_GZIP_SWITCH=on \
-    NGINX_GZIP_LEVEL=6 \
-    NGINX_GZIP_PROXIED=any \
-    NGINX_GZIP_MIN_LENGTH=1000 \
-    NGINX_GZIP_TYPES='text/plain image/svg+xml application/json application/javascript text/xml text/css application/xml application/x-font-ttf font/opentype' \
-    NGINX_CUSTOM_FILE=False \
-    NINGX_REAL_REMOTE_ADDR='$real_ip' \
-    NGINX_SSL_PORT=443 \
-    DASHBOARD_DOMAIN=dashboard.example.com \
-    API_DOMAIN=api.example.com \
-    DJANGO_SETTINGS_MODULE=openwisp.settings_dashboard
-
 ARG OPENWISP_DOCKER_REPO=https://github.com/openwisp/docker-openwisp.git
 ARG OPENWISP_DOCKER_REF=25.10.1
 
@@ -178,9 +100,4 @@ RUN git clone --depth 1 --branch "${OPENWISP_DOCKER_REF}" "${OPENWISP_DOCKER_REP
     cp /tmp/docker-openwisp/images/common/services.py /etc/nginx/ && \
     rm -rf /tmp/docker-openwisp
 
-RUN mkdir -p /opt/openwisp/static /opt/openwisp/media /opt/openwisp/private /opt/openwisp/logs && \
-    ln -s /opt/openwisp/openwisp /opt/openwisp/openwisp2
-
 COPY rootfs/ /
-
-RUN python3 /opt/openwisp/collectstatic.py

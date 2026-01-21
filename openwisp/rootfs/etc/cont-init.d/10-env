@@ -78,6 +78,7 @@ USE_FIRMWARE=$(get_config_default 'use_firmware' 'false')
 USE_MONITORING=$(get_config_default 'use_monitoring' 'false')
 METRIC_COLLECTION=$(get_config_default 'metric_collection' 'false')
 FREERADIUS_ALLOWED_HOSTS=$(get_config_default 'freeradius_allowed_hosts' '127.0.0.1/32')
+COLLECTSTATIC_DEBUG=$(get_config_default 'collectstatic_debug' 'false')
 
 INFLUXDB_USER=$(get_config_default 'influxdb_user' 'admin')
 INFLUXDB_PASS=$(get_config_default 'influxdb_pass' 'admin')
@@ -192,6 +193,8 @@ export INFLUXDB_NAME="${INFLUXDB_NAME}"
 export INFLUXDB_HOST="${INFLUXDB_HOST}"
 export INFLUXDB_PORT="${INFLUXDB_PORT}"
 export INFLUXDB_DEFAULT_RETENTION_POLICY="${INFLUXDB_DEFAULT_RETENTION_POLICY}"
+
+export COLLECTSTATIC_DEBUG="${COLLECTSTATIC_DEBUG}"
 
 export SSL_CERT_MODE="False"
 export NGINX_PORT="80"

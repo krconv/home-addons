@@ -20,6 +20,9 @@ if [ ! -f /data/.openwisp_initialized ]; then
   touch /data/.openwisp_initialized
 fi
 
+bashio::log.info "Collecting static assets..."
+python3 /opt/openwisp/collectstatic.py
+
 bashio::log.info "Ensuring admin user..."
 python3 - <<'PY'
 import os

@@ -28,6 +28,7 @@ This add-on runs OpenWISP on the Home Assistant Supervisor network and requires 
 - `influxdb_port`: InfluxDB port. Defaults to `8086`.
 - `influxdb_retention_policy`: InfluxDB default retention policy. Defaults to `26280h0m0s`.
 - `debug`: Enable Django debug mode. Defaults to `false`.
+- `collectstatic_debug`: Enable collectstatic CSS debug logging/snippets. Defaults to `false`.
 - `secret_key`: Optional Django secret key; auto-generated if empty.
 
 ## Ports
