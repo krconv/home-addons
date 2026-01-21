@@ -6,4 +6,6 @@ set -euo pipefail
 
 cd /opt/openwisp
 
-exec celery -A openwisp beat --loglevel="${DJANGO_LOG_LEVEL}" --schedule /data/celerybeat-schedule
+export DJANGO_SETTINGS_MODULE="openwisp.settings_dashboard"
+
+exec celery -A openwisp beat -l "${DJANGO_LOG_LEVEL}" --schedule /data/celerybeat-schedule

@@ -4,6 +4,10 @@ set -euo pipefail
 mkdir -p /run/openwisp /run/openwisp/static /data /data/media /data/private /data/logs /data/ssh
 mkdir -p /opt/openwisp/public
 
+if [ -d /opt/openwisp/static ] && [ ! -L /opt/openwisp/static ]; then
+  cp -a /opt/openwisp/static/. /run/openwisp/static/
+fi
+
 ln -sfn /run/openwisp/static /opt/openwisp/static
 ln -sfn /data/media /opt/openwisp/media
 ln -sfn /data/private /opt/openwisp/private
@@ -78,9 +82,15 @@ FREERADIUS_ALLOWED_HOSTS=$(get_config_default 'freeradius_allowed_hosts' '127.0.
 INFLUXDB_USER=$(get_config_default 'influxdb_user' 'admin')
 INFLUXDB_PASS=$(get_config_default 'influxdb_pass' 'admin')
 INFLUXDB_NAME=$(get_config_default 'influxdb_name' 'openwisp')
-INFLUXDB_HOST=$(get_config_default 'influxdb_host' 'influxdb')
+INFLUXDB_HOST=$(get_config_default 'influxdb_host' '')
 INFLUXDB_PORT=$(get_config_default 'influxdb_port' '8086')
 INFLUXDB_DEFAULT_RETENTION_POLICY=$(get_config_default 'influxdb_retention_policy' '26280h0m0s')
+
+metric_lower=$(echo "${METRIC_COLLECTION}" | tr '[:upper:]' '[:lower:]')
+if [ "${metric_lower}" = "true" ] && [ -z "${INFLUXDB_HOST}" ]; then
+  bashio::log.error "metric_collection requires influxdb_host to be set."
+  exit 1
+fi
 
 SECRET_KEY=$(get_config_default 'secret_key' '')
 if [ -z "$SECRET_KEY" ]; then
@@ -207,7 +217,7 @@ export DASHBOARD_APP_SERVICE="127.0.0.1"
 export API_APP_SERVICE="127.0.0.1"
 export WEBSOCKET_APP_SERVICE="127.0.0.1"
 export DASHBOARD_APP_PORT="8000"
-export API_APP_PORT="8000"
+export API_APP_PORT="8001"
 export WEBSOCKET_APP_PORT="8002"
 export DASHBOARD_INTERNAL="localhost"
 export API_INTERNAL="localhost"
@@ -228,6 +238,6 @@ export UWSGI_THREADS="2"
 export UWSGI_LISTEN="128"
 export CONTAINER_PORT="8000"
 
-export DJANGO_SETTINGS_MODULE="openwisp.settings_addon"
+export DJANGO_SETTINGS_MODULE="openwisp.settings_dashboard"
 export PYTHONPATH="/opt/openwisp"
 ENV

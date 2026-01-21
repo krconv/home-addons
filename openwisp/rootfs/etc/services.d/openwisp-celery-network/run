@@ -1,0 +1,17 @@
+#!/usr/bin/with-contenv bashio
+set -euo pipefail
+
+# shellcheck disable=SC1091
+. /run/openwisp/env
+
+if [ "${USE_OPENWISP_CELERY_NETWORK}" != "True" ]; then
+  exec tail -f /dev/null
+fi
+
+cd /opt/openwisp
+
+export DJANGO_SETTINGS_MODULE="openwisp.settings_dashboard"
+
+exec celery -A openwisp worker -l "${DJANGO_LOG_LEVEL}" --queues network \
+  -n network@%h --logfile /opt/openwisp/logs/celery_network.log \
+  ${OPENWISP_CELERY_NETWORK_COMMAND_FLAGS:-}

@@ -6,4 +6,8 @@ set -euo pipefail
 
 cd /opt/openwisp
 
-exec celery -A openwisp worker --loglevel="${DJANGO_LOG_LEVEL}"
+export DJANGO_SETTINGS_MODULE="openwisp.settings_dashboard"
+
+exec celery -A openwisp worker -l "${DJANGO_LOG_LEVEL}" --queues celery \
+  -n celery@%h --logfile /opt/openwisp/logs/celery.log \
+  ${OPENWISP_CELERY_COMMAND_FLAGS:-}

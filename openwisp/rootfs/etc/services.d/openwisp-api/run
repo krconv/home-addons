@@ -6,6 +6,10 @@ set -euo pipefail
 
 cd /opt/openwisp
 
+export MODULE_NAME="api"
+export DJANGO_SETTINGS_MODULE="openwisp.settings_api"
+export CONTAINER_PORT="${API_APP_PORT}"
+
 envsubst < /opt/openwisp/uwsgi.conf.ini > /opt/openwisp/uwsgi.ini
 
 exec uwsgi --ini /opt/openwisp/uwsgi.ini

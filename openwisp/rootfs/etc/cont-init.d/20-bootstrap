@@ -6,7 +6,7 @@ set -euo pipefail
 
 cd /opt/openwisp
 
-bashio::log.info "Running migrations and collectstatic..."
+bashio::log.info "Running migrations..."
 python3 /opt/openwisp/manage.py migrate --noinput
 
 # Ensure SSH key for device connections
@@ -19,6 +19,8 @@ if [ ! -f /data/.openwisp_initialized ]; then
   python3 /opt/openwisp/load_init_data.py || true
   touch /data/.openwisp_initialized
 fi
+
+bashio::log.info "Collecting static assets..."
 python3 /opt/openwisp/collectstatic.py
 
 bashio::log.info "Ensuring admin user..."

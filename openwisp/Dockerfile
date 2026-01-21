@@ -92,8 +92,6 @@ RUN git clone --depth 1 --branch "${OPENWISP_DOCKER_REF}" "${OPENWISP_DOCKER_REP
       dj-rest-auth && \
     python3 -m pip install -r /tmp/docker-openwisp/images/openwisp_nginx/requirements.txt && \
     cp -r /tmp/docker-openwisp/images/common/* /opt/openwisp/ && \
-    cp /tmp/docker-openwisp/images/openwisp_dashboard/module_settings.py /opt/openwisp/openwisp/module_settings.py && \
-    cp /tmp/docker-openwisp/images/openwisp_dashboard/urls.py /opt/openwisp/openwisp/urls.py && \
     cp /tmp/docker-openwisp/images/openwisp_dashboard/load_init_data.py /opt/openwisp/ && \
     cp /tmp/docker-openwisp/images/openwisp_dashboard/openvpn.json /opt/openwisp/ && \
     cp -r /tmp/docker-openwisp/images/openwisp_nginx/* /etc/nginx/ && \

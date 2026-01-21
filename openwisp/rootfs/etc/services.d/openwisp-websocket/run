@@ -6,4 +6,9 @@ set -euo pipefail
 
 cd /opt/openwisp
 
-exec daphne -b 0.0.0.0 -p "${WEBSOCKET_APP_PORT}" --proxy-headers openwisp.asgi:application --access-log -
+export MODULE_NAME="websocket"
+export DJANGO_SETTINGS_MODULE="openwisp.settings_websocket"
+export DJANGO_WEBSOCKET_HOST="${DJANGO_WEBSOCKET_HOST:-0.0.0.0}"
+export CONTAINER_PORT="${WEBSOCKET_APP_PORT}"
+
+exec daphne -b "${DJANGO_WEBSOCKET_HOST}" -p "${WEBSOCKET_APP_PORT}" --proxy-headers openwisp.asgi:application --access-log -

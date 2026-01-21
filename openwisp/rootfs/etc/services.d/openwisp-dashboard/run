@@ -1,0 +1,15 @@
+#!/usr/bin/with-contenv bashio
+set -euo pipefail
+
+# shellcheck disable=SC1091
+. /run/openwisp/env
+
+cd /opt/openwisp
+
+export MODULE_NAME="dashboard"
+export DJANGO_SETTINGS_MODULE="openwisp.settings_dashboard"
+export CONTAINER_PORT="${DASHBOARD_APP_PORT}"
+
+envsubst < /opt/openwisp/uwsgi.conf.ini > /opt/openwisp/uwsgi.ini
+
+exec uwsgi --ini /opt/openwisp/uwsgi.ini
