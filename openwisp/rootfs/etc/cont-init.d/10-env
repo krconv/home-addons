@@ -58,6 +58,10 @@ fi
 DEBUG=$(get_config 'debug')
 ALLOWED_HOSTS=$(get_config_default 'host_allowlist' '*')
 DOMAIN=$(get_config_default 'public_domain' 'localhost')
+API_DOMAIN=$(get_config_default 'api_domain' '')
+if [ -z "${API_DOMAIN}" ]; then
+  API_DOMAIN="api.${DOMAIN}"
+fi
 CORS_HOSTS=$(get_config_default 'cors_allowlist' '*')
 
 DB_ENGINE=$(get_config_default 'db_engine' 'django.contrib.gis.db.backends.postgis')
@@ -78,7 +82,6 @@ USE_FIRMWARE=$(get_config_default 'use_firmware' 'false')
 USE_MONITORING=$(get_config_default 'use_monitoring' 'false')
 METRIC_COLLECTION=$(get_config_default 'metric_collection' 'false')
 FREERADIUS_ALLOWED_HOSTS=$(get_config_default 'freeradius_allowed_hosts' '127.0.0.1/32')
-COLLECTSTATIC_DEBUG=$(get_config_default 'collectstatic_debug' 'false')
 
 INFLUXDB_USER=$(get_config_default 'influxdb_user' 'admin')
 INFLUXDB_PASS=$(get_config_default 'influxdb_pass' 'admin')
@@ -122,7 +125,7 @@ export DJANGO_LANGUAGE_CODE="${LANGUAGE_CODE}"
 export DEBUG_MODE="${DEBUG}"
 export DJANGO_ALLOWED_HOSTS="${ALLOWED_HOSTS}"
 export DASHBOARD_DOMAIN="${DOMAIN}"
-export API_DOMAIN="${DOMAIN}"
+export API_DOMAIN="${API_DOMAIN}"
 export MODULE_NAME="dashboard"
 
 export DB_ENGINE="${DB_ENGINE}"
@@ -193,8 +196,6 @@ export INFLUXDB_NAME="${INFLUXDB_NAME}"
 export INFLUXDB_HOST="${INFLUXDB_HOST}"
 export INFLUXDB_PORT="${INFLUXDB_PORT}"
 export INFLUXDB_DEFAULT_RETENTION_POLICY="${INFLUXDB_DEFAULT_RETENTION_POLICY}"
-
-export COLLECTSTATIC_DEBUG="${COLLECTSTATIC_DEBUG}"
 
 export SSL_CERT_MODE="False"
 export NGINX_PORT="80"

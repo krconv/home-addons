@@ -7,6 +7,7 @@ This add-on runs OpenWISP on the Home Assistant Supervisor network and requires 
 - `admin_email` (required): Admin user email.
 - `admin_password` (required): Admin user password.
 - `public_domain`: Public domain used for OpenWISP. Defaults to `localhost`.
+- `api_domain`: Public domain for the API vhost. Defaults to `api.<public_domain>`.
 - `host_allowlist`: Django `ALLOWED_HOSTS`. Defaults to `*`.
 - `cors_allowlist`: Comma-separated list of CORS origins, or `*` to allow all. Defaults to `*`.
 - `db_host` (required): PostgreSQL host.
@@ -28,7 +29,6 @@ This add-on runs OpenWISP on the Home Assistant Supervisor network and requires 
 - `influxdb_port`: InfluxDB port. Defaults to `8086`.
 - `influxdb_retention_policy`: InfluxDB default retention policy. Defaults to `26280h0m0s`.
 - `debug`: Enable Django debug mode. Defaults to `false`.
-- `collectstatic_debug`: Enable collectstatic CSS debug logging/snippets. Defaults to `false`.
 - `secret_key`: Optional Django secret key; auto-generated if empty.
 
 ## Ports

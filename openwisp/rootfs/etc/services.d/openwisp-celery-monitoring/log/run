@@ -3,5 +3,5 @@ set -euo pipefail
 
 prefix="openwisp-celery-monitoring: "
 while IFS= read -r line; do
-  printf '%s %s%s\n' "2026-01-22T05:05:15-05:00" "" ""
+  printf '%s %s%s\n' "$(date -Iseconds)" "${prefix}" "${line}"
 done
