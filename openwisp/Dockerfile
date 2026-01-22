@@ -1,3 +1,6 @@
+FROM openwisp/openwisp-dashboard:25.10.1 AS upstream_lock
+RUN python -m pip freeze > /tmp/requirements.lock
+
 ARG BUILD_FROM
 FROM ${BUILD_FROM}
 
@@ -26,6 +29,9 @@ ARG OPENWISP_MONITORING_SOURCE="openwisp-monitoring~=1.2.0"
 ARG OPENWISP_FIRMWARE_SOURCE="openwisp-firmware-upgrader~=1.2.0"
 ARG OPENWISP_TOPOLOGY_SOURCE="openwisp-network-topology~=1.2.0"
 ARG OPENWISP_RADIUS_SOURCE="openwisp-radius~=1.2.0"
+
+# Pin Python packages to upstream openwisp/openwisp-dashboard:25.10.1.
+COPY --from=upstream_lock /tmp/requirements.lock /tmp/requirements.lock
 
 # System dependencies for OpenWISP core (GIS, Postgres, uWSGI, nginx)
 RUN apt-get update && \
@@ -75,9 +81,9 @@ WORKDIR /opt/openwisp
 
 RUN git clone --depth 1 --branch "${OPENWISP_DOCKER_REF}" "${OPENWISP_DOCKER_REPO}" /tmp/docker-openwisp && \
     python3 -m pip install --upgrade pip && \
-    python3 -m pip install "${DJANGO_SOURCE}" && \
-    python3 -m pip install -r /tmp/docker-openwisp/images/openwisp_base/requirements.txt && \
-    python3 -m pip install \
+    python3 -m pip install -c /tmp/requirements.lock "${DJANGO_SOURCE}" && \
+    python3 -m pip install -c /tmp/requirements.lock -r /tmp/docker-openwisp/images/openwisp_base/requirements.txt && \
+    python3 -m pip install -c /tmp/requirements.lock \
       "${OPENWISP_CONTROLLER_SOURCE}" \
       "${OPENWISP_USERS_SOURCE}" \
       "${OPENWISP_UTILS_SOURCE}" \
@@ -90,10 +96,7 @@ RUN git clone --depth 1 --branch "${OPENWISP_DOCKER_REF}" "${OPENWISP_DOCKER_REP
       django-nested-admin \
       django-private-storage \
       dj-rest-auth && \
-    python3 -m pip install -r /tmp/docker-openwisp/images/openwisp_nginx/requirements.txt && \
-    python3 -m pip install \
-      "csscompressor==0.9.4" \
-      "drf-yasg==1.21.11" && \
+    python3 -m pip install -c /tmp/requirements.lock -r /tmp/docker-openwisp/images/openwisp_nginx/requirements.txt && \
     cp -r /tmp/docker-openwisp/images/common/* /opt/openwisp/ && \
     cp /tmp/docker-openwisp/images/openwisp_dashboard/load_init_data.py /opt/openwisp/ && \
     cp /tmp/docker-openwisp/images/openwisp_dashboard/openvpn.json /opt/openwisp/ && \
