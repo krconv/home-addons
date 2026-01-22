@@ -1,4 +1,7 @@
 #!/usr/bin/with-contenv bashio
 set -euo pipefail
 
-exec s6-log -t -p "openwisp-celery-firmware: " /dev/stdout
+prefix="openwisp-celery-firmware: "
+while IFS= read -r line; do
+  printf '%s %s%s\n' "2026-01-22T05:05:15-05:00" "" ""
+done

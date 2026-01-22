@@ -47,6 +47,7 @@ RUN apt-get update && \
     python3 \
     python3-dev \
     python3-pip \
+    libpython3.11 \
     libffi-dev \
     libssl-dev \
     libpq-dev \
@@ -106,7 +107,6 @@ RUN git clone --depth 1 --branch "${OPENWISP_DOCKER_REF}" "${OPENWISP_DOCKER_REP
     cp /tmp/docker-openwisp/images/common/utils.sh /etc/nginx/ && \
     cp /tmp/docker-openwisp/images/common/services.py /etc/nginx/ && \
     rm -rf /tmp/docker-openwisp && \
-    apt-get purge -y --auto-remove gcc g++ make python3-dev && \
     rm -rf /var/lib/apt/lists/* /root/.cache/pip /tmp/*
 
 COPY rootfs/ /
