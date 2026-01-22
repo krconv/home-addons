@@ -20,8 +20,14 @@ if [ ! -f /data/.openwisp_initialized ]; then
   touch /data/.openwisp_initialized
 fi
 
-bashio::log.info "Collecting static assets..."
-python3 /opt/openwisp/collectstatic.py
+if [ ! -f /data/.openwisp_collectstatic_done ]; then
+  bashio::log.info "Collecting static assets (first run)..."
+  COLLECTSTATIC_WHEN_DEPS_CHANGE=false python3 /opt/openwisp/collectstatic.py
+  touch /data/.openwisp_collectstatic_done
+else
+  bashio::log.info "Collecting static assets..."
+  python3 /opt/openwisp/collectstatic.py
+fi
 
 bashio::log.info "Ensuring admin user..."
 python3 - <<'PY'

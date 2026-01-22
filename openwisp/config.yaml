@@ -1,6 +1,6 @@
 name: OpenWISP
 slug: openwisp
-version: "25.10.23"
+version: "25.10.24"
 description: OpenWISP add-on (single container, upstream docker-openwisp)
 url: https://openwisp.org/
 image: ghcr.io/krconv/home-addons/openwisp
@@ -38,7 +38,7 @@ options:
   use_firmware: false
   use_monitoring: false
   metric_collection: false
-  freeradius_allowed_hosts: "127.0.0.1/32"
+  freeradius_allowed_hosts: "172.30.32.2/32"
   influxdb_user: "admin"
   influxdb_pass: "admin"
   influxdb_name: "openwisp"

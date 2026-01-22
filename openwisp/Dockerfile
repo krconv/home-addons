@@ -37,42 +37,39 @@ COPY --from=upstream_lock /tmp/requirements.lock /tmp/requirements.lock
 # System dependencies for OpenWISP core (GIS, Postgres, uWSGI, nginx)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    bash \
-    ca-certificates \
-    curl \
-    git \
-    gcc \
-    g++ \
-    make \
-    python3 \
-    python3-dev \
-    python3-pip \
-    libpython3.11 \
-    libffi-dev \
-    libssl-dev \
-    libpq-dev \
-    zlib1g-dev \
-    libjpeg-dev \
-    tzdata \
-    gdal-bin \
-    libgdal-dev \
-    libgeos-dev \
-    proj-bin \
-    libproj-dev \
-    sqlite3 \
-    libsqlite3-dev \
-    libxml2-dev \
-    libxslt-dev \
-    gettext \
-    libcairo2 \
-    libgdk-pixbuf-2.0-0 \
-    libglib2.0-0 \
-    libharfbuzz0b \
-    libpango-1.0-0 \
-    libpangoft2-1.0-0 \
-    nginx \
-    openssh-client \
-    openssl && \
+    bash \ # local shell helper (not upstream)
+    ca-certificates \ # upstream base
+    curl \ # local clone helper (not upstream)
+    git \ # local clone helper (not upstream)
+    gcc \ # upstream base build deps
+    g++ \ # upstream base build deps
+    make \ # local build deps (not upstream)
+    python3 \ # upstream base
+    python3-dev \ # upstream base build deps
+    python3-pip \ # upstream base build deps
+    libpython3.11 \ # HA base only (uwsgi shared lib)
+    libffi-dev \ # upstream base build deps
+    libssl-dev \ # local build deps (not upstream)
+    libpq-dev \ # upstream base build deps
+    zlib1g-dev \ # upstream base build deps
+    libjpeg-dev \ # upstream base build deps
+    tzdata \ # upstream base
+    gdal-bin \ # upstream base
+    libgdal-dev \ # local build deps (not upstream)
+    libgeos-dev \ # local build deps (not upstream)
+    proj-bin \ # local build deps (not upstream)
+    libproj-dev \ # local build deps (not upstream)
+    sqlite3 \ # local build deps (not upstream)
+    libsqlite3-dev \ # local build deps (not upstream)
+    libxml2-dev \ # upstream base build deps
+    libxslt-dev \ # upstream base build deps
+    gettext \ # upstream base
+    libcairo2 \ # upstream base
+    libpango-1.0-0 \ # upstream base (weasyprint)
+    libpangoft2-1.0-0 \ # upstream base (weasyprint)
+    nginx \ # upstream nginx image (merged here)
+    openssh-client \ # upstream base
+    openssl && \ # upstream nginx image (merged here)
     if ! getent group nginx >/dev/null 2>&1; then addgroup --system nginx; fi && \
     if ! id -u nginx >/dev/null 2>&1; then \
       adduser --system --ingroup nginx --no-create-home --shell /usr/sbin/nologin nginx; \

@@ -1,14 +1,10 @@
 #!/usr/bin/with-contenv bashio
 set -euo pipefail
 
-mkdir -p /run/openwisp /run/openwisp/static /data /data/media /data/private /data/logs /data/ssh
+mkdir -p /run/openwisp /data /data/static /data/media /data/private /data/logs /data/ssh
 mkdir -p /opt/openwisp/public
 
-if [ -d /opt/openwisp/static ] && [ ! -L /opt/openwisp/static ]; then
-  cp -a /opt/openwisp/static/. /run/openwisp/static/
-fi
-
-ln -sfn /run/openwisp/static /opt/openwisp/static
+ln -sfn /data/static /opt/openwisp/static
 ln -sfn /data/media /opt/openwisp/media
 ln -sfn /data/private /opt/openwisp/private
 ln -sfn /data/logs /opt/openwisp/logs
