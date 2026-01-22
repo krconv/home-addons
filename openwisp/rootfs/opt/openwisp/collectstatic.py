@@ -28,8 +28,8 @@ _COLLECTSTATIC_DEBUG_ALWAYS = os.environ.get("COLLECTSTATIC_DEBUG_ALWAYS", "").l
 )
 
 
-def _enable_collectstatic_debug():
-    if not (_COLLECTSTATIC_DEBUG or _COLLECTSTATIC_DEBUG_ALWAYS):
+def _enable_collectstatic_debug(force=False):
+    if not (force or _COLLECTSTATIC_DEBUG or _COLLECTSTATIC_DEBUG_ALWAYS):
         return
     try:
         from compress_staticfiles.storage import CompressStaticFilesStorage
@@ -49,15 +49,12 @@ def _enable_collectstatic_debug():
                 content = self.open(path).read()
                 if isinstance(content, bytes):
                     content = content.decode("utf-8", errors="replace")
-                os.makedirs("/data/logs", exist_ok=True)
-                with open("/data/logs/collectstatic_failed.css", "w") as handle:
-                    handle.write(content[:2000])
-                print(
-                    "collectstatic debug: wrote snippet to /data/logs/collectstatic_failed.css",
-                    file=sys.stderr,
-                )
+                print(f"collectstatic debug: failed CSS path: {path}", file=sys.stderr)
+                print("collectstatic debug: failed CSS content start", file=sys.stderr)
+                print(content, file=sys.stderr)
+                print("collectstatic debug: failed CSS content end", file=sys.stderr)
             except Exception as dump_exc:
-                print(f"collectstatic debug: failed to dump CSS snippet: {dump_exc}", file=sys.stderr)
+                print(f"collectstatic debug: failed to dump CSS content: {dump_exc}", file=sys.stderr)
             raise
 
     CompressStaticFilesStorage._minify_css = _minify_css
@@ -76,10 +73,24 @@ def get_pip_freeze_hash():
         sys.exit(1)
 
 
+def _log_versions():
+    try:
+        from importlib import metadata
+    except Exception:
+        return
+    for package in ("drf-yasg", "swagger-ui-bundle", "swagger-ui-dist", "csscompressor"):
+        try:
+            version = metadata.version(package)
+        except Exception:
+            version = "not-installed"
+        print(f"collectstatic debug: {package}={version}", file=sys.stderr)
+
+
 def _run_collectstatic_in_process():
     from django.core.management import call_command
 
     print("collectstatic debug: running in-process collectstatic", file=sys.stderr)
+    _log_versions()
     call_command("collectstatic", verbosity=2, interactive=False)
 
 
@@ -94,7 +105,7 @@ def run_collectstatic():
     except subprocess.CalledProcessError as e:
         print(f"Error running 'collectstatic': {e}", file=sys.stderr)
         print("collectstatic debug: retrying in-process with verbose output", file=sys.stderr)
-        _enable_collectstatic_debug()
+        _enable_collectstatic_debug(force=True)
         _run_collectstatic_in_process()
         sys.exit(1)
 
