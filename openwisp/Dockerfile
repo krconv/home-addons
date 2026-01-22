@@ -35,41 +35,28 @@ ARG OPENWISP_RADIUS_SOURCE="openwisp-radius~=1.2.0"
 COPY --from=upstream_lock /tmp/requirements.lock /tmp/requirements.lock
 
 # System dependencies for OpenWISP core (GIS, Postgres, uWSGI, nginx)
-RUN apt-get update && \
+# Refresh Debian archive keys first to avoid signature errors in HA base.
+RUN apt-get update -o Acquire::AllowInsecureRepositories=true && \
+    apt-get install -y --no-install-recommends debian-archive-keyring && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* && \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
-    bash \ # local shell helper (not upstream)
-    ca-certificates \ # upstream base
-    curl \ # local clone helper (not upstream)
-    git \ # local clone helper (not upstream)
-    gcc \ # upstream base build deps
-    g++ \ # upstream base build deps
-    make \ # local build deps (not upstream)
-    python3 \ # upstream base
-    python3-dev \ # upstream base build deps
-    python3-pip \ # upstream base build deps
-    libpython3.11 \ # HA base only (uwsgi shared lib)
-    libffi-dev \ # upstream base build deps
-    libssl-dev \ # local build deps (not upstream)
-    libpq-dev \ # upstream base build deps
-    zlib1g-dev \ # upstream base build deps
-    libjpeg-dev \ # upstream base build deps
-    tzdata \ # upstream base
-    gdal-bin \ # upstream base
-    libgdal-dev \ # local build deps (not upstream)
-    libgeos-dev \ # local build deps (not upstream)
-    proj-bin \ # local build deps (not upstream)
-    libproj-dev \ # local build deps (not upstream)
-    sqlite3 \ # local build deps (not upstream)
-    libsqlite3-dev \ # local build deps (not upstream)
-    libxml2-dev \ # upstream base build deps
-    libxslt-dev \ # upstream base build deps
-    gettext \ # upstream base
-    libcairo2 \ # upstream base
-    libpango-1.0-0 \ # upstream base (weasyprint)
-    libpangoft2-1.0-0 \ # upstream base (weasyprint)
-    nginx \ # upstream nginx image (merged here)
-    openssh-client \ # upstream base
-    openssl && \ # upstream nginx image (merged here)
+    bash \
+    ca-certificates \
+    curl \
+    git \
+    python3 \
+    python3-pip \
+    libpython3.11 \
+    tzdata \
+    gdal-bin \
+    gettext \
+    libcairo2 \
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
+    nginx \
+    openssh-client \
+    openssl && \
     if ! getent group nginx >/dev/null 2>&1; then addgroup --system nginx; fi && \
     if ! id -u nginx >/dev/null 2>&1; then \
       adduser --system --ingroup nginx --no-create-home --shell /usr/sbin/nologin nginx; \
@@ -78,7 +65,24 @@ RUN apt-get update && \
 
 WORKDIR /opt/openwisp
 
-RUN git clone --depth 1 --branch "${OPENWISP_DOCKER_REF}" "${OPENWISP_DOCKER_REPO}" /tmp/docker-openwisp && \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    make \
+    python3-dev \
+    libffi-dev \
+    libssl-dev \
+    libpq-dev \
+    zlib1g-dev \
+    libjpeg-dev \
+    libgdal-dev \
+    libgeos-dev \
+    libproj-dev \
+    libsqlite3-dev \
+    libxml2-dev \
+    libxslt-dev && \
+    git clone --depth 1 --branch "${OPENWISP_DOCKER_REF}" "${OPENWISP_DOCKER_REPO}" /tmp/docker-openwisp && \
     python3 -m pip install --upgrade pip && \
     python3 -m pip install -c /tmp/requirements.lock "${DJANGO_SOURCE}" && \
     python3 -m pip install -c /tmp/requirements.lock -r /tmp/docker-openwisp/images/openwisp_base/requirements.txt && \
@@ -104,6 +108,23 @@ RUN git clone --depth 1 --branch "${OPENWISP_DOCKER_REF}" "${OPENWISP_DOCKER_REP
     cp /tmp/docker-openwisp/images/common/utils.sh /etc/nginx/ && \
     cp /tmp/docker-openwisp/images/common/services.py /etc/nginx/ && \
     rm -rf /tmp/docker-openwisp && \
+    apt-get purge -y --auto-remove \
+      gcc \
+      g++ \
+      make \
+      python3-dev \
+      libffi-dev \
+      libssl-dev \
+      libpq-dev \
+      zlib1g-dev \
+      libjpeg-dev \
+      libgdal-dev \
+      libgeos-dev \
+      libproj-dev \
+      libsqlite3-dev \
+      libxml2-dev \
+      libxslt-dev && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/* /root/.cache/pip /tmp/*
 
 COPY rootfs/ /

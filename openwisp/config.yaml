@@ -1,6 +1,6 @@
 name: OpenWISP
 slug: openwisp
-version: "25.10.24"
+version: "25.10.25"
 description: OpenWISP add-on (single container, upstream docker-openwisp)
 url: https://openwisp.org/
 image: ghcr.io/krconv/home-addons/openwisp
