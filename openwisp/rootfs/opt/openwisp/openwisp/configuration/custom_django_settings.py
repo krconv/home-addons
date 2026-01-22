@@ -2,4 +2,4 @@
 
 from ..module_settings import INSTALLED_APPS
 
-INSTALLED_APPS += ["openwisp_clients"]
+INSTALLED_APPS += ["openwisp_clients.apps.OpenWispClientsConfig"]
