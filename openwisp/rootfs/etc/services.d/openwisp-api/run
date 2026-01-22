@@ -9,7 +9,8 @@ cd /opt/openwisp
 export MODULE_NAME="api"
 export DJANGO_SETTINGS_MODULE="openwisp.settings_api"
 export CONTAINER_PORT="${API_APP_PORT}"
+export UWSGI_PIDFILE="/opt/openwisp/uwsgi-api.pid"
 
-envsubst < /opt/openwisp/uwsgi.conf.ini > /opt/openwisp/uwsgi.ini
+envsubst < /opt/openwisp/uwsgi.conf.ini > /opt/openwisp/uwsgi-api.ini
 
-exec uwsgi --ini /opt/openwisp/uwsgi.ini
+exec uwsgi --ini /opt/openwisp/uwsgi-api.ini

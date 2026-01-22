@@ -1,0 +1,4 @@
+#!/usr/bin/with-contenv bashio
+set -euo pipefail
+
+exec s6-log -t -p "openwisp-nginx: " /dev/stdout

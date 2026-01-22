@@ -1,7 +1,8 @@
+ARG BUILD_FROM
+
 FROM openwisp/openwisp-dashboard:25.10.1 AS upstream_lock
 RUN python -m pip freeze > /tmp/requirements.lock
 
-ARG BUILD_FROM
 FROM ${BUILD_FROM}
 
 ARG BUILD_VERSION
@@ -104,6 +105,8 @@ RUN git clone --depth 1 --branch "${OPENWISP_DOCKER_REF}" "${OPENWISP_DOCKER_REP
     cp /tmp/docker-openwisp/images/common/init_command.sh /etc/nginx/ && \
     cp /tmp/docker-openwisp/images/common/utils.sh /etc/nginx/ && \
     cp /tmp/docker-openwisp/images/common/services.py /etc/nginx/ && \
-    rm -rf /tmp/docker-openwisp
+    rm -rf /tmp/docker-openwisp && \
+    apt-get purge -y --auto-remove gcc g++ make python3-dev && \
+    rm -rf /var/lib/apt/lists/* /root/.cache/pip /tmp/*
 
 COPY rootfs/ /

@@ -9,7 +9,8 @@ cd /opt/openwisp
 export MODULE_NAME="dashboard"
 export DJANGO_SETTINGS_MODULE="openwisp.settings_dashboard"
 export CONTAINER_PORT="${DASHBOARD_APP_PORT}"
+export UWSGI_PIDFILE="/opt/openwisp/uwsgi-dashboard.pid"
 
-envsubst < /opt/openwisp/uwsgi.conf.ini > /opt/openwisp/uwsgi.ini
+envsubst < /opt/openwisp/uwsgi.conf.ini > /opt/openwisp/uwsgi-dashboard.ini
 
-exec uwsgi --ini /opt/openwisp/uwsgi.ini
+exec uwsgi --ini /opt/openwisp/uwsgi-dashboard.ini
