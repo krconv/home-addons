@@ -14,10 +14,22 @@ import redis
 from django.conf import settings
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "openwisp.settings")
+_COLLECTSTATIC_DEBUG = os.environ.get("COLLECTSTATIC_DEBUG", "").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+_COLLECTSTATIC_DEBUG_ALWAYS = os.environ.get("COLLECTSTATIC_DEBUG_ALWAYS", "").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 
 
 def _enable_collectstatic_debug():
-    if os.environ.get("COLLECTSTATIC_DEBUG", "").lower() not in ("1", "true", "yes", "on"):
+    if not (_COLLECTSTATIC_DEBUG or _COLLECTSTATIC_DEBUG_ALWAYS):
         return
     try:
         from compress_staticfiles.storage import CompressStaticFilesStorage
@@ -64,13 +76,26 @@ def get_pip_freeze_hash():
         sys.exit(1)
 
 
+def _run_collectstatic_in_process():
+    from django.core.management import call_command
+
+    print("collectstatic debug: running in-process collectstatic", file=sys.stderr)
+    call_command("collectstatic", verbosity=2, interactive=False)
+
+
 def run_collectstatic():
     try:
-        subprocess.run(
-            [sys.executable, "manage.py", "collectstatic", "--noinput"], check=True
-        )
+        if _COLLECTSTATIC_DEBUG or _COLLECTSTATIC_DEBUG_ALWAYS:
+            _run_collectstatic_in_process()
+        else:
+            subprocess.run(
+                [sys.executable, "manage.py", "collectstatic", "--noinput"], check=True
+            )
     except subprocess.CalledProcessError as e:
         print(f"Error running 'collectstatic': {e}", file=sys.stderr)
+        print("collectstatic debug: retrying in-process with verbose output", file=sys.stderr)
+        _enable_collectstatic_debug()
+        _run_collectstatic_in_process()
         sys.exit(1)
 
 
