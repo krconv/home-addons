@@ -1,5 +1,5 @@
 # Custom settings loaded by openwisp.settings when present.
 
-INSTALLED_APPS += [
-    "openwisp_clients",
-]
+from ..module_settings import INSTALLED_APPS
+
+INSTALLED_APPS += ["openwisp_clients"]
