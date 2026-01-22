@@ -91,6 +91,9 @@ RUN git clone --depth 1 --branch "${OPENWISP_DOCKER_REF}" "${OPENWISP_DOCKER_REP
       django-private-storage \
       dj-rest-auth && \
     python3 -m pip install -r /tmp/docker-openwisp/images/openwisp_nginx/requirements.txt && \
+    python3 -m pip install \
+      "csscompressor==0.9.4" \
+      "drf-yasg==1.21.11" && \
     cp -r /tmp/docker-openwisp/images/common/* /opt/openwisp/ && \
     cp /tmp/docker-openwisp/images/openwisp_dashboard/load_init_data.py /opt/openwisp/ && \
     cp /tmp/docker-openwisp/images/openwisp_dashboard/openvpn.json /opt/openwisp/ && \
