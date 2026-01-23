@@ -17,11 +17,15 @@ def validate_hostname(value):
 
 
 def validate_mac(value):
+    if value in ("", None):
+        return
     if not _MAC_RE.match(value):
         raise ValidationError("Enter a valid MAC address (AA:BB:CC:DD:EE:FF).")
 
 
 def validate_psk(value):
+    if value in ("", None):
+        return
     if len(value) == 64 and re.fullmatch(r"[0-9A-Fa-f]{64}", value):
         return
     if 8 <= len(value) <= 63:
@@ -61,8 +65,12 @@ class ClientClassificationSubnet(models.Model):
 
 class Client(models.Model):
     name = models.CharField(max_length=255, unique=True, validators=[validate_hostname])
-    mac_address = models.CharField(max_length=17, unique=True, validators=[validate_mac])
-    psk = models.CharField(max_length=64, validators=[validate_psk])
+    psk = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        validators=[validate_psk],
+    )
     classification = models.ForeignKey(
         ClientClassification, on_delete=models.PROTECT, related_name="clients"
     )
@@ -75,3 +83,23 @@ class Client(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class ClientMacAddress(models.Model):
+    client = models.ForeignKey(
+        Client, on_delete=models.CASCADE, related_name="mac_addresses"
+    )
+    mac_address = models.CharField(
+        max_length=17,
+        unique=True,
+        blank=True,
+        default="",
+        validators=[validate_mac],
+    )
+
+    class Meta:
+        verbose_name = "Client MAC address"
+        verbose_name_plural = "Client MAC addresses"
+
+    def __str__(self):
+        return f"{self.client} - {self.mac_address or 'blank'}"
