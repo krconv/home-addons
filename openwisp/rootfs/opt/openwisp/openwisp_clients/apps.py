@@ -11,6 +11,8 @@ class OpenWispClientsConfig(AppConfig):
 
     def ready(self):
         self.register_menu_groups()
+        self.register_config_context()
+        self.register_signals()
 
     def register_menu_groups(self):
         register_menu_group(
@@ -34,3 +36,13 @@ class OpenWispClientsConfig(AppConfig):
                 "icon": "ow-user-and-org",
             },
         )
+
+    def register_config_context(self):
+        from openwisp_controller.config.models import Config
+
+        from .context import get_clients_config_context
+
+        Config.register_context_function(get_clients_config_context)
+
+    def register_signals(self):
+        from . import signals  # noqa: F401
