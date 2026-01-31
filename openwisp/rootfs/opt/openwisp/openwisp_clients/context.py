@@ -8,7 +8,7 @@ def get_clients_config_context(config=None):
     queryset = Client.objects.select_related("classification").prefetch_related(
         "mac_addresses"
     )
-    for client in queryset.iterator():
+    for client in queryset.iterator(chunk_size=200):
         classification = None
         if client.classification_id:
             classification = {

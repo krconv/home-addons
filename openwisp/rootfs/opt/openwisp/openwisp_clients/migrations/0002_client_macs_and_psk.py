@@ -7,7 +7,7 @@ import openwisp_clients.models
 def migrate_client_macs(apps, schema_editor):
     Client = apps.get_model("openwisp_clients", "Client")
     ClientMacAddress = apps.get_model("openwisp_clients", "ClientMacAddress")
-    for client in Client.objects.all().iterator():
+    for client in Client.objects.all().iterator(chunk_size=200):
         mac = getattr(client, "mac_address", None)
         if mac is None:
             continue
