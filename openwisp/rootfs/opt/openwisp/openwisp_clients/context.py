@@ -1,3 +1,5 @@
+import json
+
 from django.apps import apps
 
 
@@ -30,4 +32,4 @@ def get_clients_config_context(config=None):
             }
         )
 
-    return {"clients": clients}
+    return {"clients": json.dumps(clients)}
