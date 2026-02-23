@@ -1,0 +1,39 @@
+name: Quicken Simplifi MCP
+slug: quicken-simplifi-mcp
+version: "0.1.0"
+description: MCP server for Quicken Simplifi transaction data
+url: https://github.com/krconv/quicken-simplifi-mcp
+image: ghcr.io/krconv/home-addons/quicken-simplifi-mcp
+arch:
+  - aarch64
+  - amd64
+  - armv7
+  - armhf
+  - i386
+startup: services
+boot: auto
+init: false
+ports:
+  8787/tcp: null
+ports_description:
+  8787/tcp: MCP server (HTTP)
+options:
+  public_base_url: ""
+  simplifi_email: ""
+  simplifi_password: ""
+  simplifi_dataset_id: ""
+  simplifi_threat_metrix_session_id: ""
+  oauth_login_username: admin
+  oauth_login_password: ""
+  oauth_jwt_secret: ""
+  oauth_allowed_redirect_uris: ""
+schema:
+  public_base_url: url
+  simplifi_email: str
+  simplifi_password: password
+  simplifi_dataset_id: str
+  simplifi_threat_metrix_session_id: str
+  oauth_login_username: str
+  oauth_login_password: password
+  oauth_jwt_secret: password
+  oauth_allowed_redirect_uris: str?
