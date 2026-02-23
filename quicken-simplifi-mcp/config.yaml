@@ -3,13 +3,11 @@ slug: quicken-simplifi-mcp
 version: "0.1.0"
 description: MCP server for Quicken Simplifi transaction data
 url: https://github.com/krconv/quicken-simplifi-mcp
-image: ghcr.io/krconv/home-addons/quicken-simplifi-mcp
 arch:
   - aarch64
   - amd64
   - armv7
   - armhf
-  - i386
 startup: services
 boot: auto
 init: false
@@ -18,7 +16,7 @@ ports:
 ports_description:
   8787/tcp: MCP server (HTTP)
 options:
-  public_base_url: ""
+  public_base_url: "https://your-server.example.com"
   simplifi_email: ""
   simplifi_password: ""
   simplifi_dataset_id: ""

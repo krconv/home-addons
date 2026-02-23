@@ -29,6 +29,7 @@ RUN apt-get update && \
       ca-certificates \
       curl \
       jq \
+      libstdc++6 \
       nginx && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
