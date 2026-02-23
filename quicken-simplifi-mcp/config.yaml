@@ -1,6 +1,6 @@
 name: Quicken Simplifi MCP
 slug: quicken-simplifi-mcp
-version: "0.1.1"
+version: "0.1.2"
 description: MCP server for Quicken Simplifi transaction data
 url: https://github.com/krconv/quicken-simplifi-mcp
 arch:
