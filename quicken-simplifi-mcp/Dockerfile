@@ -7,7 +7,10 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends git ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-RUN git clone --depth 1 https://github.com/krconv/quicken-simplifi-mcp.git /build
+RUN git init /build && \
+    git -C /build remote add origin https://github.com/krconv/quicken-simplifi-mcp.git && \
+    git -C /build fetch --depth 1 origin 1abae47e2e9b0d04d127fe7023687d0a70e11bfb && \
+    git -C /build checkout FETCH_HEAD
 WORKDIR /build
 
 RUN yarn install --frozen-lockfile && \
