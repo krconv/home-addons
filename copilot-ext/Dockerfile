@@ -15,6 +15,7 @@ WORKDIR /build
 
 RUN yarn install --frozen-lockfile && \
     yarn build && \
+    find src -name "*.sql" -exec sh -c 'dest="dist/${1#src/}"; mkdir -p "$(dirname "$dest")"; cp "$1" "$dest"' _ {} \; && \
     rm -rf node_modules && \
     yarn install --frozen-lockfile --production
 
