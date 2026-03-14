@@ -1,0 +1,17 @@
+---
+name: MCP Proxy
+slug: mcp-proxy
+version: "0.1.0"
+description: Aggregates multiple MCP servers into a single proxied endpoint
+arch:
+  - aarch64
+  - amd64
+  - armv7
+  - armhf
+startup: services
+boot: auto
+init: false
+ports:
+  9000/tcp: null
+ports_description:
+  9000/tcp: MCP proxy server (HTTP)
