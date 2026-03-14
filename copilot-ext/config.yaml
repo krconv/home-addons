@@ -1,0 +1,41 @@
+name: Copilot Ext
+slug: copilot-ext
+version: "0.1.0"
+description: MCP server and transaction preprocessor for Copilot Money
+url: https://github.com/krconv/copilot-ext
+arch:
+  - aarch64
+  - amd64
+  - armv7
+  - armhf
+startup: services
+boot: auto
+init: false
+ports:
+  3000/tcp: null
+ports_description:
+  3000/tcp: MCP server (HTTP)
+options:
+  firebase_api_key: ""
+  firebase_refresh_token: ""
+  anthropic_api_key: ""
+  database_url: "postgres://copilot:copilot@localhost:5432/copilot_ext"
+  llm_model: "claude-sonnet-4-6"
+  mcp_server_url: "http://localhost:3000/mcp"
+  dry_run: true
+  sleep_between_agent_runs: ""
+  langsmith_tracing: false
+  langsmith_api_key: ""
+  langsmith_project: ""
+schema:
+  firebase_api_key: str
+  firebase_refresh_token: password
+  anthropic_api_key: password
+  database_url: str
+  llm_model: str
+  mcp_server_url: str
+  dry_run: bool
+  sleep_between_agent_runs: str?
+  langsmith_tracing: bool
+  langsmith_api_key: password?
+  langsmith_project: str
