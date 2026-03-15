@@ -15,3 +15,12 @@ ports:
   9000/tcp: null
 ports_description:
   9000/tcp: MCP proxy server (HTTP)
+options:
+  upstreams: []
+schema:
+  upstreams:
+    - name: str
+      url: str
+      headers:
+        - name: str
+          value: str

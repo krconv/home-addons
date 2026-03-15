@@ -2,11 +2,13 @@
 /**
  * MCP Proxy — aggregates multiple upstream MCP servers into one endpoint.
  *
- * On first start, generates an API key written to /data/api_key and creates
- * a default upstream config at /data/upstream_config.json. Edit that file to
- * add custom headers (e.g. Authorization) per upstream server.
+ * Upstream servers and their headers are configured via the HA add-on UI
+ * and passed in as the UPSTREAMS_JSON environment variable.
  *
- * All tools are exposed with the upstream name as a prefix:
+ * On first start an API key is generated at /data/api_key and logged once.
+ * Add it to your MCP client as: Authorization: Bearer <key>
+ *
+ * All tools are prefixed with the upstream name:
  *   copilot__get_accounts, simplifi__list_transactions, etc.
  */
 
@@ -27,14 +29,23 @@ import crypto from "crypto";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface RawHeader {
+  name: string;
+  value: string;
+}
+
+// Shape coming from HA config (headers as {name,value} list)
+interface RawUpstreamConfig {
+  name: string;
+  url: string;
+  headers?: RawHeader[];
+}
+
+// Normalised internal shape (headers as Record)
 interface UpstreamConfig {
   name: string;
   url: string;
-  headers?: Record<string, string>;
-}
-
-interface ProxyConfig {
-  upstreams: UpstreamConfig[];
+  headers: Record<string, string>;
 }
 
 interface ConnectedUpstream {
@@ -48,14 +59,6 @@ interface ConnectedUpstream {
 const DATA_DIR = process.env.DATA_DIR ?? "/data";
 const PORT = parseInt(process.env.PORT ?? "9000", 10);
 const API_KEY_FILE = path.join(DATA_DIR, "api_key");
-const CONFIG_FILE = path.join(DATA_DIR, "upstream_config.json");
-
-const DEFAULT_CONFIG: ProxyConfig = {
-  upstreams: [
-    { name: "copilot", url: "http://localhost:3000/mcp", headers: {} },
-    { name: "simplifi", url: "http://localhost:8787/mcp", headers: {} },
-  ],
-};
 
 // ── API key management ────────────────────────────────────────────────────────
 
@@ -80,23 +83,27 @@ function loadOrCreateApiKey(): string {
 
 // ── Config management ─────────────────────────────────────────────────────────
 
-function loadConfig(): ProxyConfig {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+function parseHeaders(headers?: RawHeader[]): Record<string, string> {
+  if (!headers || headers.length === 0) return {};
+  return Object.fromEntries(headers.map((h) => [h.name, h.value]));
+}
 
-  if (!fs.existsSync(CONFIG_FILE)) {
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(DEFAULT_CONFIG, null, 2));
-    console.log(`Created default upstream config at ${CONFIG_FILE}`);
-    console.log("Edit that file to configure upstream URLs and custom headers.");
-    return DEFAULT_CONFIG;
+function loadConfig(): UpstreamConfig[] {
+  const raw = process.env.UPSTREAMS_JSON;
+  if (!raw) {
+    console.warn("UPSTREAMS_JSON is not set — no upstreams configured.");
+    return [];
   }
-
   try {
-    const raw = fs.readFileSync(CONFIG_FILE, "utf8");
-    return JSON.parse(raw) as ProxyConfig;
+    const parsed = JSON.parse(raw) as RawUpstreamConfig[];
+    return parsed.map((u) => ({
+      name: u.name,
+      url: u.url,
+      headers: parseHeaders(u.headers),
+    }));
   } catch (err) {
-    console.error(`Failed to parse ${CONFIG_FILE}:`, err);
-    console.error("Falling back to default config.");
-    return DEFAULT_CONFIG;
+    console.error("Failed to parse UPSTREAMS_JSON:", err);
+    return [];
   }
 }
 
@@ -106,7 +113,7 @@ async function connectUpstream(config: UpstreamConfig): Promise<ConnectedUpstrea
   const client = new Client({ name: "mcp-proxy", version: "1.0.0" });
 
   const transport = new StreamableHTTPClientTransport(new URL(config.url), {
-    requestInit: { headers: config.headers ?? {} },
+    requestInit: { headers: config.headers },
   });
 
   await client.connect(transport);
@@ -246,8 +253,8 @@ function startHttpServer(mcpServer: Server, apiKey: string): void {
 
 async function main(): Promise<void> {
   const apiKey = loadOrCreateApiKey();
-  const config = loadConfig();
-  const upstreams = await connectAll(config.upstreams);
+  const upstreamConfigs = loadConfig();
+  const upstreams = await connectAll(upstreamConfigs);
 
   if (upstreams.size === 0) {
     console.warn("No upstreams connected — proxy will serve an empty tool list.");
