@@ -214,13 +214,49 @@ function buildMcpServer(upstreams: Map<string, ConnectedUpstream>): Server {
 // ── HTTP server ───────────────────────────────────────────────────────────────
 
 function startHttpServer(mcpServer: Server, apiKey: string): void {
+  const baseUrl = `http://localhost:${PORT}`;
   const app = express();
   app.use(express.json());
+  app.use(express.urlencoded({ extended: false }));
 
-  // Bearer token auth
+  // OAuth 2.0 server metadata discovery
+  app.get("/.well-known/oauth-authorization-server", (_req: Request, res: Response): void => {
+    res.json({
+      issuer: baseUrl,
+      token_endpoint: `${baseUrl}/token`,
+      grant_types_supported: ["client_credentials"],
+      token_endpoint_auth_methods_supported: ["client_secret_post"],
+    });
+  });
+
+  // OAuth 2.0 token endpoint — client_credentials grant
+  app.post("/token", (req: Request, res: Response): void => {
+    const { grant_type, client_id, client_secret } = req.body as Record<string, string>;
+
+    if (grant_type !== "client_credentials") {
+      res.status(400).json({ error: "unsupported_grant_type" });
+      return;
+    }
+    if (client_id !== "client" || client_secret !== apiKey) {
+      res.status(401).json({ error: "invalid_client" });
+      return;
+    }
+
+    res.json({
+      access_token: apiKey,
+      token_type: "bearer",
+      expires_in: 3600,
+    });
+  });
+
+  // Bearer token auth for all other routes
   app.use((req: Request, res: Response, next: NextFunction): void => {
     const auth = req.headers["authorization"];
     if (!auth || auth !== `Bearer ${apiKey}`) {
+      res.set(
+        "WWW-Authenticate",
+        `Bearer realm="${baseUrl}", resource_metadata="${baseUrl}/.well-known/oauth-authorization-server"`
+      );
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
@@ -240,6 +276,7 @@ function startHttpServer(mcpServer: Server, apiKey: string): void {
 
   app.listen(PORT, () => {
     console.log(`MCP proxy listening on http://localhost:${PORT}/mcp`);
+    console.log(`OAuth token endpoint: ${baseUrl}/token  (client_id=client, client_secret=<api_key>)`);
   });
 }
 
