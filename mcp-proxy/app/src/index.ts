@@ -71,13 +71,7 @@ function loadOrCreateApiKey(): string {
 
   const key = crypto.randomBytes(32).toString("hex");
   fs.writeFileSync(API_KEY_FILE, key, { mode: 0o600 });
-
-  console.log("=".repeat(64));
-  console.log("Generated new API key — add to your MCP client as:");
-  console.log(`  Authorization: Bearer ${key}`);
-  console.log("Key saved to:", API_KEY_FILE);
-  console.log("=".repeat(64));
-
+  console.log("Generated new API key, saved to:", API_KEY_FILE);
   return key;
 }
 
@@ -253,6 +247,10 @@ function startHttpServer(mcpServer: Server, apiKey: string): void {
 
 async function main(): Promise<void> {
   const apiKey = loadOrCreateApiKey();
+  console.log("=".repeat(64));
+  console.log("MCP client auth header:");
+  console.log(`  Authorization: Bearer ${apiKey}`);
+  console.log("=".repeat(64));
   const upstreamConfigs = loadConfig();
   const upstreams = await connectAll(upstreamConfigs);
 
