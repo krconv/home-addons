@@ -9,7 +9,7 @@ RUN apt-get update && \
 
 RUN git init /build && \
     git -C /build remote add origin https://github.com/krconv/copilot-ext.git && \
-    git -C /build fetch --depth 1 origin 5c74081158f106ad0f3561efe8fed6e838f3b9f1 && \
+    git -C /build fetch --depth 1 origin 3555cd0a979c39384219ec68240745f8153a5061 && \
     git -C /build checkout FETCH_HEAD
 WORKDIR /build
 

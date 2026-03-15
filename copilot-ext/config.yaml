@@ -1,6 +1,6 @@
 name: Copilot Ext
 slug: copilot-ext
-version: "0.2.0"
+version: "0.3.0"
 description: MCP server and transaction preprocessor for Copilot Money
 url: https://github.com/krconv/copilot-ext
 arch:
