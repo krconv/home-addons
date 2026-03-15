@@ -219,25 +219,47 @@ function startHttpServer(mcpServer: Server, apiKey: string): void {
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
 
-  // OAuth 2.0 server metadata discovery
+  // OAuth 2.0 protected resource metadata (RFC 9728) — tells clients where to get tokens
+  app.get("/.well-known/oauth-protected-resource", (_req: Request, res: Response): void => {
+    res.json({
+      resource: baseUrl,
+      authorization_servers: [baseUrl],
+      bearer_methods_supported: ["header"],
+    });
+  });
+
+  // OAuth 2.0 authorization server metadata (RFC 8414)
   app.get("/.well-known/oauth-authorization-server", (_req: Request, res: Response): void => {
     res.json({
       issuer: baseUrl,
       token_endpoint: `${baseUrl}/token`,
       grant_types_supported: ["client_credentials"],
-      token_endpoint_auth_methods_supported: ["client_secret_post"],
+      token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
     });
   });
 
   // OAuth 2.0 token endpoint — client_credentials grant
+  // Accepts credentials in POST body (client_secret_post) or Basic auth (client_secret_basic)
   app.post("/token", (req: Request, res: Response): void => {
-    const { grant_type, client_id, client_secret } = req.body as Record<string, string>;
+    const body = req.body as Record<string, string>;
 
-    if (grant_type !== "client_credentials") {
+    let clientId: string | undefined = body.client_id;
+    let clientSecret: string | undefined = body.client_secret;
+    const basicHeader = req.headers["authorization"];
+    if (basicHeader?.startsWith("Basic ")) {
+      const decoded = Buffer.from(basicHeader.slice(6), "base64").toString("utf8");
+      const colon = decoded.indexOf(":");
+      if (colon !== -1) {
+        clientId = decoded.slice(0, colon);
+        clientSecret = decoded.slice(colon + 1);
+      }
+    }
+
+    if (body.grant_type !== "client_credentials") {
       res.status(400).json({ error: "unsupported_grant_type" });
       return;
     }
-    if (client_id !== "client" || client_secret !== apiKey) {
+    if (clientId !== "client" || clientSecret !== apiKey) {
       res.status(401).json({ error: "invalid_client" });
       return;
     }
@@ -255,7 +277,7 @@ function startHttpServer(mcpServer: Server, apiKey: string): void {
     if (!auth || auth !== `Bearer ${apiKey}`) {
       res.set(
         "WWW-Authenticate",
-        `Bearer realm="${baseUrl}", resource_metadata="${baseUrl}/.well-known/oauth-authorization-server"`
+        `Bearer realm="${baseUrl}", resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`
       );
       res.status(401).json({ error: "Unauthorized" });
       return;
