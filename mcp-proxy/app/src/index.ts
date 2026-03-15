@@ -213,26 +213,57 @@ function buildMcpServer(upstreams: Map<string, ConnectedUpstream>): Server {
 
 // ── HTTP server ───────────────────────────────────────────────────────────────
 
+// Derive the externally-visible base URL from the incoming request.
+// Respects X-Forwarded-Proto so reverse proxies (HA ingress, nginx, etc.) work correctly.
+function getBaseUrl(req: Request): string {
+  const proto = (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0].trim() ?? "http";
+  const host = req.headers["host"] ?? `localhost:${PORT}`;
+  return `${proto}://${host}`;
+}
+
 function startHttpServer(mcpServer: Server, apiKey: string): void {
-  const baseUrl = `http://localhost:${PORT}`;
   const app = express();
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
 
-  // OAuth 2.0 protected resource metadata (RFC 9728) — tells clients where to get tokens
-  app.get("/.well-known/oauth-protected-resource", (_req: Request, res: Response): void => {
+  // OAuth 2.0 protected resource metadata (RFC 9728) — root variant
+  app.get("/.well-known/oauth-protected-resource", (req: Request, res: Response): void => {
+    const base = getBaseUrl(req);
     res.json({
-      resource: baseUrl,
-      authorization_servers: [baseUrl],
+      resource: base,
+      authorization_servers: [base],
+      bearer_methods_supported: ["header"],
+    });
+  });
+
+  // OAuth 2.0 protected resource metadata (RFC 9728) — path-qualified for /mcp
+  // Claude Code derives this URL by appending the resource path to /.well-known/oauth-protected-resource
+  app.get("/.well-known/oauth-protected-resource/mcp", (req: Request, res: Response): void => {
+    const base = getBaseUrl(req);
+    res.json({
+      resource: `${base}/mcp`,
+      authorization_servers: [base],
       bearer_methods_supported: ["header"],
     });
   });
 
   // OAuth 2.0 authorization server metadata (RFC 8414)
-  app.get("/.well-known/oauth-authorization-server", (_req: Request, res: Response): void => {
+  app.get("/.well-known/oauth-authorization-server", (req: Request, res: Response): void => {
+    const base = getBaseUrl(req);
     res.json({
-      issuer: baseUrl,
-      token_endpoint: `${baseUrl}/token`,
+      issuer: base,
+      token_endpoint: `${base}/token`,
+      grant_types_supported: ["client_credentials"],
+      token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
+    });
+  });
+
+  // OpenID Connect discovery (fallback used by some clients including Claude Code)
+  app.get("/.well-known/openid-configuration", (req: Request, res: Response): void => {
+    const base = getBaseUrl(req);
+    res.json({
+      issuer: base,
+      token_endpoint: `${base}/token`,
       grant_types_supported: ["client_credentials"],
       token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
     });
@@ -275,9 +306,10 @@ function startHttpServer(mcpServer: Server, apiKey: string): void {
   app.use((req: Request, res: Response, next: NextFunction): void => {
     const auth = req.headers["authorization"];
     if (!auth || auth !== `Bearer ${apiKey}`) {
+      const base = getBaseUrl(req);
       res.set(
         "WWW-Authenticate",
-        `Bearer realm="${baseUrl}", resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`
+        `Bearer realm="${base}", resource_metadata="${base}/.well-known/oauth-protected-resource/mcp"`
       );
       res.status(401).json({ error: "Unauthorized" });
       return;
@@ -298,7 +330,7 @@ function startHttpServer(mcpServer: Server, apiKey: string): void {
 
   app.listen(PORT, () => {
     console.log(`MCP proxy listening on http://localhost:${PORT}/mcp`);
-    console.log(`OAuth token endpoint: ${baseUrl}/token  (client_id=client, client_secret=<api_key>)`);
+    console.log(`OAuth token endpoint: http://localhost:${PORT}/token  (client_id=client, client_secret=<api_key>)`);
   });
 }
 
