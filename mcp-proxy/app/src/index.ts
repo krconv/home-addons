@@ -54,6 +54,33 @@ interface ConnectedUpstream {
   tools: Tool[];
 }
 
+interface AuthCode {
+  challenge: string;
+  redirectUri: string;
+  expiresAt: number;
+}
+
+// ── Auth code store (authorization code + PKCE flow) ──────────────────────────
+
+const authCodes = new Map<string, AuthCode>();
+
+function pruneAuthCodes(): void {
+  const now = Date.now();
+  for (const [code, data] of authCodes) {
+    if (data.expiresAt < now) authCodes.delete(code);
+  }
+}
+
+function verifyS256(verifier: string, challenge: string): boolean {
+  const hash = crypto.createHash("sha256").update(verifier).digest("base64")
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+  return hash === challenge;
+}
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const DATA_DIR = process.env.DATA_DIR ?? "/data";
@@ -221,6 +248,18 @@ function getBaseUrl(req: Request): string {
   return `${proto}://${host}`;
 }
 
+function serverMetadata(base: string): object {
+  return {
+    issuer: base,
+    authorization_endpoint: `${base}/authorize`,
+    token_endpoint: `${base}/token`,
+    grant_types_supported: ["authorization_code"],
+    response_types_supported: ["code"],
+    code_challenge_methods_supported: ["S256"],
+    token_endpoint_auth_methods_supported: ["none"],
+  };
+}
+
 function startHttpServer(mcpServer: Server, apiKey: string): void {
   const app = express();
   app.use(express.json());
@@ -229,77 +268,137 @@ function startHttpServer(mcpServer: Server, apiKey: string): void {
   // OAuth 2.0 protected resource metadata (RFC 9728) — root variant
   app.get("/.well-known/oauth-protected-resource", (req: Request, res: Response): void => {
     const base = getBaseUrl(req);
-    res.json({
-      resource: base,
-      authorization_servers: [base],
-      bearer_methods_supported: ["header"],
-    });
+    res.json({ resource: base, authorization_servers: [base], bearer_methods_supported: ["header"] });
   });
 
   // OAuth 2.0 protected resource metadata (RFC 9728) — path-qualified for /mcp
-  // Claude Code derives this URL by appending the resource path to /.well-known/oauth-protected-resource
   app.get("/.well-known/oauth-protected-resource/mcp", (req: Request, res: Response): void => {
     const base = getBaseUrl(req);
-    res.json({
-      resource: `${base}/mcp`,
-      authorization_servers: [base],
-      bearer_methods_supported: ["header"],
-    });
+    res.json({ resource: `${base}/mcp`, authorization_servers: [base], bearer_methods_supported: ["header"] });
   });
 
   // OAuth 2.0 authorization server metadata (RFC 8414)
   app.get("/.well-known/oauth-authorization-server", (req: Request, res: Response): void => {
-    const base = getBaseUrl(req);
-    res.json({
-      issuer: base,
-      token_endpoint: `${base}/token`,
-      grant_types_supported: ["client_credentials"],
-      token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
-    });
+    res.json(serverMetadata(getBaseUrl(req)));
   });
 
-  // OpenID Connect discovery (fallback used by some clients including Claude Code)
+  // OpenID Connect discovery — used by claude.ai as a fallback
   app.get("/.well-known/openid-configuration", (req: Request, res: Response): void => {
-    const base = getBaseUrl(req);
-    res.json({
-      issuer: base,
-      token_endpoint: `${base}/token`,
-      grant_types_supported: ["client_credentials"],
-      token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
-    });
+    res.json(serverMetadata(getBaseUrl(req)));
   });
 
-  // OAuth 2.0 token endpoint — client_credentials grant
-  // Accepts credentials in POST body (client_secret_post) or Basic auth (client_secret_basic)
+  // Authorization endpoint — browser-based Authorization Code + PKCE flow (used by claude.ai)
+  app.get("/authorize", (req: Request, res: Response): void => {
+    const q = req.query as Record<string, string>;
+    if (q.response_type !== "code") {
+      res.status(400).json({ error: "unsupported_response_type" });
+      return;
+    }
+    if (q.code_challenge_method && q.code_challenge_method !== "S256") {
+      res.status(400).json({ error: "invalid_request", error_description: "Only S256 supported" });
+      return;
+    }
+    const fields = ["response_type", "client_id", "redirect_uri", "code_challenge",
+      "code_challenge_method", "state", "scope", "resource"];
+    const hiddenInputs = fields
+      .filter((f) => q[f] != null)
+      .map((f) => `<input type="hidden" name="${escHtml(f)}" value="${escHtml(q[f])}">`)
+      .join("\n    ");
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MCP Proxy — Authorize</title>
+  <style>
+    body{font-family:system-ui,sans-serif;max-width:380px;margin:80px auto;padding:0 20px}
+    h1{font-size:1.2rem;margin-bottom:.5rem}
+    p{font-size:.875rem;color:#555;margin-bottom:1.5rem}
+    label{display:block;font-size:.8rem;font-weight:600;margin-bottom:4px}
+    input[type=password]{width:100%;box-sizing:border-box;padding:8px 10px;font-size:1rem;border:1px solid #ccc;border-radius:6px}
+    button{margin-top:14px;width:100%;padding:10px;font-size:1rem;background:#111;color:#fff;border:none;border-radius:6px;cursor:pointer}
+    button:hover{background:#333}
+    .hint{font-size:.75rem;color:#999;margin-top:20px}
+  </style>
+</head>
+<body>
+  <h1>Authorize MCP Proxy</h1>
+  <p>Enter your API key to grant access to this MCP server.</p>
+  <form method="POST" action="/authorize">
+    ${hiddenInputs}
+    <label for="api_key">API Key</label>
+    <input type="password" id="api_key" name="api_key" autocomplete="current-password" autofocus>
+    <button type="submit">Authorize</button>
+  </form>
+  <p class="hint">Find your API key in the MCP Proxy add-on logs in Home Assistant.</p>
+</body>
+</html>`);
+  });
+
+  app.post("/authorize", (req: Request, res: Response): void => {
+    const body = req.body as Record<string, string>;
+    const { redirect_uri, code_challenge, state, api_key } = body;
+
+    if (!redirect_uri) {
+      res.status(400).json({ error: "invalid_request", error_description: "redirect_uri required" });
+      return;
+    }
+
+    let redirectUrl: URL;
+    try {
+      redirectUrl = new URL(redirect_uri);
+    } catch {
+      res.status(400).json({ error: "invalid_request", error_description: "invalid redirect_uri" });
+      return;
+    }
+
+    if (api_key !== apiKey) {
+      redirectUrl.searchParams.set("error", "access_denied");
+      if (state) redirectUrl.searchParams.set("state", state);
+      res.redirect(redirectUrl.toString());
+      return;
+    }
+
+    pruneAuthCodes();
+    const code = crypto.randomBytes(32).toString("hex");
+    authCodes.set(code, {
+      challenge: code_challenge,
+      redirectUri: redirect_uri,
+      expiresAt: Date.now() + 5 * 60 * 1000,
+    });
+
+    redirectUrl.searchParams.set("code", code);
+    if (state) redirectUrl.searchParams.set("state", state);
+    res.redirect(redirectUrl.toString());
+  });
+
+  // Token endpoint — authorization_code + PKCE only
   app.post("/token", (req: Request, res: Response): void => {
     const body = req.body as Record<string, string>;
 
-    let clientId: string | undefined = body.client_id;
-    let clientSecret: string | undefined = body.client_secret;
-    const basicHeader = req.headers["authorization"];
-    if (basicHeader?.startsWith("Basic ")) {
-      const decoded = Buffer.from(basicHeader.slice(6), "base64").toString("utf8");
-      const colon = decoded.indexOf(":");
-      if (colon !== -1) {
-        clientId = decoded.slice(0, colon);
-        clientSecret = decoded.slice(colon + 1);
-      }
-    }
-
-    if (body.grant_type !== "client_credentials") {
+    if (body.grant_type !== "authorization_code") {
       res.status(400).json({ error: "unsupported_grant_type" });
       return;
     }
-    if (clientId !== "client" || clientSecret !== apiKey) {
-      res.status(401).json({ error: "invalid_client" });
+
+    const { code, code_verifier, redirect_uri } = body;
+    const stored = authCodes.get(code);
+
+    if (!stored || stored.expiresAt < Date.now()) {
+      res.status(400).json({ error: "invalid_grant", error_description: "Code not found or expired" });
+      return;
+    }
+    if (stored.redirectUri !== redirect_uri) {
+      res.status(400).json({ error: "invalid_grant", error_description: "redirect_uri mismatch" });
+      return;
+    }
+    if (!verifyS256(code_verifier, stored.challenge)) {
+      res.status(400).json({ error: "invalid_grant", error_description: "PKCE verification failed" });
       return;
     }
 
-    res.json({
-      access_token: apiKey,
-      token_type: "bearer",
-      expires_in: 3600,
-    });
+    authCodes.delete(code);
+    res.json({ access_token: apiKey, token_type: "bearer", expires_in: 3600 });
   });
 
   // Bearer token auth for all other routes
@@ -330,7 +429,7 @@ function startHttpServer(mcpServer: Server, apiKey: string): void {
 
   app.listen(PORT, () => {
     console.log(`MCP proxy listening on http://localhost:${PORT}/mcp`);
-    console.log(`OAuth token endpoint: http://localhost:${PORT}/token  (client_id=client, client_secret=<api_key>)`);
+    console.log(`OAuth authorize endpoint: http://localhost:${PORT}/authorize`);
   });
 }
 
