@@ -3,8 +3,14 @@ ARG BUILD_FROM
 # ── Build stage ──────────────────────────────────────────────────────────────
 FROM node:22-bookworm-slim AS builder
 
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /build
-COPY app/ .
+ARG MCP_PROXY_REF=main
+RUN git clone --depth 1 --branch "${MCP_PROXY_REF}" \
+      https://github.com/krconv/mcp-proxy.git .
 
 RUN yarn install --frozen-lockfile && \
     yarn build && \
