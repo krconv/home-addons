@@ -38,6 +38,16 @@ Each add-on is a self-contained Docker image managed by the Home Assistant Super
 - Include default port numbers in `ports_description` (e.g., `PostgreSQL (default 5432)`).
 - Do not use `config.yaml` for anything other than the add-on manifest; Supervisor searches for it recursively.
 
+### Versioning (Semver)
+
+Every change to an add-on **must** include a version bump in its `config.yaml`. Follow semantic versioning:
+
+- **Patch** (`x.y.Z`) — bug fixes, dependency updates, minor tweaks that don't change behavior.
+- **Minor** (`x.Y.0`) — new features, new config options, non-breaking enhancements.
+- **Major** (`X.0.0`) — breaking changes: removed/renamed config options, changed default behavior, incompatible API changes.
+
+When in doubt, bump minor. Always bump the version in the same commit as the change.
+
 ### Dockerfile
 
 - Use `ARG BUILD_FROM` then `FROM $BUILD_FROM` so the HA build system can swap in the correct architecture base image.
