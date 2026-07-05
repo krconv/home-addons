@@ -3,6 +3,7 @@ import datetime
 import logging
 import math
 import os
+import random
 import typing
 
 import pydantic
@@ -64,6 +65,7 @@ class LightsApp:
         self.logger = logger
         self.addon_config = addon_config
         self.app_config = app_config
+        self._last_sent: dict[str, tuple[int, int]] = {}
 
     async def initialize(self) -> None:
         """Initialize the app and its components."""
@@ -140,10 +142,22 @@ class LightsApp:
                 (self._calculate_circuit_lighting(circuit, now), circuit)
                 for circuit in self._config.circuits
             ]
-            for (brightness, temperature), circuit in calculated_lighting:
+            tasks = []
+
+            async def sleep_then_update(
+                circuit: LightCircuit, brightness: int, temperature: int
+            ) -> None:
+                await asyncio.sleep(random.uniform(0, 60))
                 await self._update_circuit_lighting(
                     circuit, brightness, temperature, default_transition
                 )
+
+            for (brightness, temperature), circuit in calculated_lighting:
+                if self._needs_lighting_update(circuit, brightness, temperature):
+                    tasks.append(sleep_then_update(circuit, brightness, temperature))
+
+            if tasks:
+                await asyncio.gather(*tasks)
 
     async def _run_healthchecks(self, now: datetime.datetime) -> None:
         if self._health_lock.locked():
@@ -167,6 +181,21 @@ class LightsApp:
         brightness_pct, temperature_k = self._get_scheduled_lighting_values(now.time())
 
         return self._map_lighting_for_circuit(circuit, brightness_pct, temperature_k)
+
+    def _needs_lighting_update(
+        self, circuit: LightCircuit, brightness: int, temperature: int
+    ) -> bool:
+        last = self._last_sent.get(circuit.id)
+        if last is None:
+            return True
+
+        last_brightness, last_temperature = last
+        brightness_changed = abs(brightness - last_brightness) >= 255 * 0.01
+        temperature_changed = (
+            last_temperature > 0
+            and abs(temperature - last_temperature) / last_temperature >= 0.01
+        )
+        return brightness_changed or temperature_changed
 
     def _get_scheduled_lighting_values(
         self, current_time: datetime.time
@@ -275,6 +304,7 @@ class LightsApp:
         await self._zigbee.set_property(
             group, "color_temp", temperature, transition=transition
         )
+        self._last_sent[circuit.id] = (brightness, temperature)
 
     async def _heal_circuit_if_needed(
         self, circuit: LightCircuit, now: datetime.datetime
