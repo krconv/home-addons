@@ -1,5 +1,5 @@
 name: "Scripts"
-version: "2026.7.5a"
+version: "2026.7.5b"
 slug: "scripts"
 description: "General-purpose Python automation platform for Home Assistant integrations"
 arch:
