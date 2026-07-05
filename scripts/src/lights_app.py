@@ -10,6 +10,7 @@ import yaml
 
 from . import zigbee
 
+
 class LightDevice(pydantic.BaseModel):
     ieee: str
 
@@ -100,15 +101,11 @@ class LightsApp:
             await asyncio.sleep(self._seconds_until_next_interval(5))
 
     async def _health_loop(self):
-        """Run health checks aligned to every 15-minute mark, skipping quiet hours."""
+        """Run health checks aligned to every 15-minute mark."""
         await asyncio.sleep(self._seconds_until_next_interval(15))
         while True:
             try:
-                now = datetime.datetime.now()
-                if self._is_within_quiet_hours(now.time()):
-                    self.logger.info("Skipping health checks during quiet hours (18:00-08:00)")
-                else:
-                    await self._run_healthchecks(now)
+                await self._run_healthchecks(datetime.datetime.now())
             except Exception as e:
                 self.logger.error(f"Error in health check loop: {e}")
             await asyncio.sleep(self._seconds_until_next_interval(15))
@@ -128,6 +125,10 @@ class LightsApp:
         start_quiet = datetime.time(18, 0)
         end_quiet = datetime.time(8, 0)
         return t >= start_quiet or t < end_quiet
+
+    def _is_bedroom(self, circuit: LightCircuit) -> bool:
+        """Return True if the circuit belongs to a bedroom."""
+        return "bedroom" in circuit.id.lower()
 
     async def _update_all_circuits_lighting(self, now: datetime.datetime) -> None:
         if self._lighting_lock.locked():
@@ -154,7 +155,7 @@ class LightsApp:
                 for circuit in self._config.circuits
             ]
             for (brightness, temperature), circuit in calculated_lighting:
-                if await self._heal_circuit_if_needed(circuit):
+                if await self._heal_circuit_if_needed(circuit, now):
                     # After a repair, quickly bring lights back to the desired state
                     await self._update_circuit_lighting(
                         circuit, brightness, temperature, 1
@@ -275,7 +276,9 @@ class LightsApp:
             group, "color_temp", temperature, transition=transition
         )
 
-    async def _heal_circuit_if_needed(self, circuit: LightCircuit) -> bool:
+    async def _heal_circuit_if_needed(
+        self, circuit: LightCircuit, now: datetime.datetime
+    ) -> bool:
         health = await self._get_circuit_health(circuit)
         if health.is_healthy:
             return False
@@ -288,6 +291,16 @@ class LightsApp:
         )
         if health.unresponsive_devices:
             if any(device in lights for device in health.unresponsive_devices):
+                if self._is_bedroom(circuit) and self._is_within_quiet_hours(
+                    now.time()
+                ):
+                    # Avoid the disruptive power-cycle reset during quiet hours;
+                    # just drop the switch out of smart bulb mode so the bulbs are
+                    # power-controlled without waking anyone.
+                    await self._disable_smart_bulb_mode(
+                        circuit, health.unresponsive_devices
+                    )
+                    return False
                 await self._reset_and_reconnect_circuit(
                     circuit, health.unresponsive_devices
                 )
@@ -301,6 +314,44 @@ class LightsApp:
                 await self._zigbee.add_to_group(device, group)
 
         return True
+
+    async def _disable_smart_bulb_mode(
+        self,
+        circuit: LightCircuit,
+        unresponsive_devices: list[zigbee.ZigBeeDevice],
+    ):
+        """Disable smart bulb mode on the circuit's hardwired switches.
+
+        Used for bedroom circuits during quiet hours: instead of power-cycling the
+        switch to recover an unresponsive bulb (which would wake someone), turn off
+        smart bulb mode so the switch cuts power to the bulbs directly.
+        """
+        hardwired_switches = [
+            self._zigbee.get_device_by_ieee(s.ieee)
+            for s in circuit.switches
+            if s.type == "hardwired"
+        ]
+
+        if not hardwired_switches:
+            self.logger.error(
+                f"No hardwired switch found for circuit {circuit.friendly_name}"
+            )
+            return
+        elif any(switch in unresponsive_devices for switch in hardwired_switches):
+            self.logger.error("Switch is unresponsive, cannot disable smart bulb mode")
+            return
+
+        self.logger.info(
+            f"Disabling smart bulb mode for bedroom circuit {circuit.friendly_name} "
+            "during quiet hours to avoid waking someone"
+        )
+        for switch in hardwired_switches:
+            if not await self._zigbee.set_and_verify_property(
+                switch, "smartBulbMode", "Disabled"
+            ):
+                self.logger.error(
+                    f"Failed to disable smart mode on {switch.friendly_name}"
+                )
 
     async def _reset_and_reconnect_circuit(
         self,
