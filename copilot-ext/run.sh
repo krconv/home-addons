@@ -10,9 +10,11 @@ LLM_MODEL="$(bashio::config 'llm_model')"
 MCP_SERVER_URL="$(bashio::config 'mcp_server_url')"
 DRY_RUN="$(bashio::config 'dry_run')"
 SLEEP_BETWEEN_AGENT_RUNS="$(bashio::config 'sleep_between_agent_runs' || true)"
-LANGSMITH_TRACING="$(bashio::config 'langsmith_tracing')"
-LANGSMITH_API_KEY="$(bashio::config 'langsmith_api_key' || true)"
-LANGSMITH_PROJECT="$(bashio::config 'langsmith_project')"
+DD_LLMOBS_ENABLED="$(bashio::config 'dd_llmobs_enabled')"
+DD_LLMOBS_ML_APP="$(bashio::config 'dd_llmobs_ml_app')"
+DD_API_KEY="$(bashio::config 'dd_api_key')"
+DD_SITE="$(bashio::config 'dd_site')"
+DD_LLMOBS_AGENTLESS_ENABLED="$(bashio::config 'dd_llmobs_agentless_enabled')"
 
 # ── Validate required fields ──
 for field in firebase_api_key firebase_refresh_token anthropic_api_key database_url; do
@@ -37,12 +39,13 @@ if [ -n "$SLEEP_BETWEEN_AGENT_RUNS" ] && [ "$SLEEP_BETWEEN_AGENT_RUNS" != "null"
   export SLEEP_BETWEEN_AGENT_RUNS
 fi
 
-export LANGSMITH_TRACING
-export LANGSMITH_PROJECT
-if [ -n "$LANGSMITH_API_KEY" ] && [ "$LANGSMITH_API_KEY" != "null" ]; then
-  export LANGSMITH_API_KEY
-fi
+# ── Datadog LLM Observability (only initialized when enabled by the app) ──
+export DD_LLMOBS_ENABLED
+export DD_LLMOBS_ML_APP
+export DD_API_KEY
+export DD_SITE
+export DD_LLMOBS_AGENTLESS_ENABLED
 
 bashio::log.info "Starting Copilot Ext server..."
 cd /opt/copilot-ext
-exec node dist/server.js
+exec node --import dd-trace/register.js dist/server.js

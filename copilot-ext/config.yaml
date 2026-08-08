@@ -1,6 +1,6 @@
 name: Copilot Ext
 slug: copilot-ext
-version: "0.4.1"
+version: "0.5.0"
 description: MCP server and transaction preprocessor for Copilot Money
 url: https://github.com/krconv/copilot-ext
 arch:
@@ -24,9 +24,11 @@ options:
   mcp_server_url: "http://localhost:3000/mcp"
   dry_run: true
   sleep_between_agent_runs: ""
-  langsmith_tracing: false
-  langsmith_api_key: ""
-  langsmith_project: ""
+  dd_llmobs_enabled: false
+  dd_llmobs_ml_app: "copilot-ext"
+  dd_api_key: ""
+  dd_site: "datadoghq.com"
+  dd_llmobs_agentless_enabled: true
 schema:
   firebase_api_key: str
   firebase_refresh_token: password
@@ -36,6 +38,8 @@ schema:
   mcp_server_url: str
   dry_run: bool
   sleep_between_agent_runs: str?
-  langsmith_tracing: bool
-  langsmith_api_key: password?
-  langsmith_project: str
+  dd_llmobs_enabled: bool
+  dd_llmobs_ml_app: str
+  dd_api_key: password
+  dd_site: str
+  dd_llmobs_agentless_enabled: bool
