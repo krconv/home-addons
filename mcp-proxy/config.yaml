@@ -1,7 +1,7 @@
 ---
 name: MCP Proxy
 slug: mcp-proxy
-version: "0.7.0"
+version: "0.8.0"
 description: Aggregates multiple MCP servers into a single proxied endpoint
 arch:
   - aarch64
@@ -22,6 +22,7 @@ schema:
   upstreams:
     - name: str
       url: str
+      strip_prefix: str?
       headers:
         - name: str
           value: str
