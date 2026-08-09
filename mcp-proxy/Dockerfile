@@ -11,7 +11,7 @@ WORKDIR /build
 # Pinned by commit, not branch: `git clone --branch main` produces an identical
 # RUN layer every build, so Docker reuses the cached clone and the add-on ships
 # stale code even after a version bump. Bump this SHA with the add-on version.
-ARG MCP_PROXY_REF=9a851421187d599fcd394196899e83fa29f481f2
+ARG MCP_PROXY_REF=0c1bfe78f9cddcb481ef9568afe9a31c21c6c142
 RUN git init . && \
     git remote add origin https://github.com/krconv/mcp-proxy.git && \
     git fetch --depth 1 origin "${MCP_PROXY_REF}" && \
