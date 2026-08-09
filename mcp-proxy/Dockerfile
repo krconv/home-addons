@@ -8,9 +8,14 @@ RUN apt-get update && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
-ARG MCP_PROXY_REF=main
-RUN git clone --depth 1 --branch "${MCP_PROXY_REF}" \
-      https://github.com/krconv/mcp-proxy.git .
+# Pinned by commit, not branch: `git clone --branch main` produces an identical
+# RUN layer every build, so Docker reuses the cached clone and the add-on ships
+# stale code even after a version bump. Bump this SHA with the add-on version.
+ARG MCP_PROXY_REF=9a851421187d599fcd394196899e83fa29f481f2
+RUN git init . && \
+    git remote add origin https://github.com/krconv/mcp-proxy.git && \
+    git fetch --depth 1 origin "${MCP_PROXY_REF}" && \
+    git checkout FETCH_HEAD
 
 RUN yarn install --frozen-lockfile && \
     yarn build && \
