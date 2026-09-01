@@ -56,11 +56,13 @@ class ZigBeeClient:
     _devices_by_ieee: dict[str, ZigBeeDevice]
     _devices_ieees_by_friendly_name: dict[str, str]
     _groups_by_id: dict[str, ZigBeeGroup]
+    _state_listeners: list[typing.Callable[[ZigBeeDevice, dict], None]]
 
     def __init__(self, logger: logging.Logger, addon_config: dict):
         self.logger = logger
         self.addon_config = addon_config
         self._base_topics = addon_config["zigbee_base_topics"]
+        self._state_listeners = []
 
     async def initialize(self) -> None:
         """Initialize the app and its components."""
@@ -174,10 +176,27 @@ class ZigBeeClient:
                 device.state.updated_at = datetime.datetime.now()
                 device.state.update = asyncio.Event()
                 update.set()
+
+                for listener in self._state_listeners:
+                    try:
+                        listener(device, data)
+                    except Exception as e:
+                        self.logger.error(
+                            f"Error in state listener for {device.friendly_name}: {e}"
+                        )
             except json.JSONDecodeError as e:
                 self.logger.error(f"Error decoding JSON from {topic}: {e}")
 
         return callback
+
+    def add_state_listener(
+        self, callback: typing.Callable[[ZigBeeDevice, dict], None]
+    ) -> None:
+        """Register a callback invoked on every device state report.
+
+        Called from the MQTT client thread, not the asyncio loop.
+        """
+        self._state_listeners.append(callback)
 
     def get_device_by_ieee(self, ieee: str) -> ZigBeeDevice:
         """Get a ZigBee device by its IEEE address."""
