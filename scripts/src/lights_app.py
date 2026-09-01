@@ -399,10 +399,10 @@ class LightsApp:
             # Dimmer switches driving dumb bulbs: no color support, and the
             # turn-on level is governed by the switch's default-level settings
             # (device-specific attributes, so they can't be set via the group).
+            # Non-hardwired switches get them too since they set the switch's
+            # own light intensity.
             default_level = max(1, min(254, brightness))
             for switch in circuit.switches:
-                if switch.type != "hardwired":
-                    continue
                 device = self._zigbee.get_device_by_ieee(switch.ieee)
                 await self._zigbee.set_property(
                     device, "defaultLevelLocal", default_level
