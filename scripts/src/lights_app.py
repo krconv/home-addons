@@ -92,6 +92,7 @@ class LightsApp:
 
         self._loop = asyncio.get_running_loop()
         self._sync_tasks: dict[str, asyncio.Task] = {}
+        self._healing_circuits: set[str] = set()
         self._circuits_by_ieee = self._build_circuit_lookup()
         self._zigbee.add_state_listener(self._on_device_state)
 
@@ -133,6 +134,8 @@ class LightsApp:
         self._loop.call_soon_threadsafe(self._schedule_circuit_sync, circuit)
 
     def _schedule_circuit_sync(self, circuit: LightCircuit) -> None:
+        if circuit.id in self._healing_circuits:
+            return
         pending = self._sync_tasks.get(circuit.id)
         if pending is not None and not pending.done():
             # The pending reconcile re-reads live state when it fires.
@@ -144,6 +147,9 @@ class LightsApp:
     async def _sync_circuit_to_switch(self, circuit: LightCircuit) -> None:
         """Enforce that a circuit's lights match its hardwired switch state."""
         await asyncio.sleep(SYNC_GRACE_SECONDS)
+
+        if circuit.id in self._healing_circuits:
+            return
 
         switch_state = self._get_hardwired_switch_state(circuit)
         if switch_state is None:
@@ -238,6 +244,8 @@ class LightsApp:
                 circuit: LightCircuit, brightness: int, temperature: int
             ) -> None:
                 await asyncio.sleep(random.uniform(0, 60))
+                if circuit.id in self._healing_circuits:
+                    return
                 await self._update_circuit_lighting(
                     circuit, brightness, temperature, default_transition
                 )
@@ -259,11 +267,22 @@ class LightsApp:
                 for circuit in self._config.circuits
             ]
             for (brightness, temperature), circuit in calculated_lighting:
-                if await self._heal_circuit_if_needed(circuit, now):
-                    # After a repair, quickly bring lights back to the desired state
-                    await self._update_circuit_lighting(
-                        circuit, brightness, temperature, 1
-                    )
+                # Block switch-state reconciles and scheduled lighting updates
+                # while a circuit is being checked/healed: the heal path
+                # power-cycles switches, which would otherwise look like
+                # mismatches and trigger competing commands.
+                self._healing_circuits.add(circuit.id)
+                pending_sync = self._sync_tasks.pop(circuit.id, None)
+                if pending_sync is not None:
+                    pending_sync.cancel()
+                try:
+                    if await self._heal_circuit_if_needed(circuit, now):
+                        # After a repair, quickly bring lights back to the desired state
+                        await self._update_circuit_lighting(
+                            circuit, brightness, temperature, 1
+                        )
+                finally:
+                    self._healing_circuits.discard(circuit.id)
 
     def _calculate_circuit_lighting(
         self, circuit: LightCircuit, now: datetime.datetime
