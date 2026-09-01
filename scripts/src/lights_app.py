@@ -53,6 +53,11 @@ class LightsConfig(pydantic.BaseModel):
     schedule: list[LightSchedule]
 
 
+# Grace window before enforcing lights == switch, so a legitimate paddle press
+# whose light report arrives before the switch's own report isn't reverted.
+SYNC_GRACE_SECONDS = 2
+
+
 class LightsApp:
     """Main app for managing home lighting with adaptive features and health monitoring."""
 
@@ -85,12 +90,97 @@ class LightsApp:
         self._zigbee = zigbee.ZigBeeClient(self.logger, self.addon_config)
         await self._zigbee.initialize()
 
+        self._loop = asyncio.get_running_loop()
+        self._sync_tasks: dict[str, asyncio.Task] = {}
+        self._circuits_by_ieee = self._build_circuit_lookup()
+        self._zigbee.add_state_listener(self._on_device_state)
+
         await self._setup_schedulers()
 
     async def _setup_schedulers(self):
         """Setup timers for lighting updates and health checks."""
         asyncio.create_task(self._lighting_loop())
         asyncio.create_task(self._health_loop())
+
+    def _build_circuit_lookup(self) -> dict[str, LightCircuit]:
+        """Map device ieee -> circuit, for circuits eligible for switch sync."""
+        lookup: dict[str, LightCircuit] = {}
+        for circuit in self._config.circuits:
+            if not circuit.lights:
+                continue
+            if not any(s.type == "hardwired" for s in circuit.switches):
+                self.logger.warning(
+                    f"Circuit {circuit.friendly_name} has no hardwired switch; "
+                    "skipping switch state sync"
+                )
+                continue
+            # Key by the device object's ieee_address (raw 0x... form) since
+            # that's what state listeners receive; config ieees use the
+            # colon-separated registry form.
+            for device in self._zigbee.get_devices_by_ieee(
+                [d.ieee for d in [*circuit.lights, *circuit.switches]]
+            ):
+                lookup[device.ieee_address] = circuit
+        return lookup
+
+    def _on_device_state(self, device: zigbee.ZigBeeDevice, data: dict) -> None:
+        """State listener; runs on the MQTT client thread."""
+        if "state" not in data:
+            return
+        circuit = self._circuits_by_ieee.get(device.ieee_address)
+        if circuit is None:
+            return
+        self._loop.call_soon_threadsafe(self._schedule_circuit_sync, circuit)
+
+    def _schedule_circuit_sync(self, circuit: LightCircuit) -> None:
+        pending = self._sync_tasks.get(circuit.id)
+        if pending is not None and not pending.done():
+            # The pending reconcile re-reads live state when it fires.
+            return
+        self._sync_tasks[circuit.id] = asyncio.create_task(
+            self._sync_circuit_to_switch(circuit)
+        )
+
+    async def _sync_circuit_to_switch(self, circuit: LightCircuit) -> None:
+        """Enforce that a circuit's lights match its hardwired switch state."""
+        await asyncio.sleep(SYNC_GRACE_SECONDS)
+
+        switch_state = self._get_hardwired_switch_state(circuit)
+        if switch_state is None:
+            return
+
+        mismatched = [
+            light
+            for light in self._zigbee.get_devices_by_ieee(
+                [light.ieee for light in circuit.lights]
+            )
+            if light.state.properties.get("state") not in (None, switch_state)
+        ]
+        if not mismatched:
+            return
+
+        self.logger.info(
+            f"Circuit {circuit.friendly_name} out of sync with switch "
+            f"(switch {switch_state}, mismatched: "
+            f"{', '.join(light.friendly_name for light in mismatched)}); "
+            f"forcing lights {switch_state}"
+        )
+        group = self._zigbee.get_group_by_id(circuit.group_id)
+        await self._zigbee.set_property(group, "state", switch_state)
+
+        if switch_state == "ON":
+            brightness, temperature = self._calculate_circuit_lighting(
+                circuit, datetime.datetime.now()
+            )
+            await self._update_circuit_lighting(circuit, brightness, temperature, 1)
+
+    def _get_hardwired_switch_state(self, circuit: LightCircuit) -> str | None:
+        for switch in circuit.switches:
+            if switch.type != "hardwired":
+                continue
+            device = self._zigbee.get_device_by_ieee(switch.ieee)
+            return device.state.properties.get("state")
+        return None
 
     async def _lighting_loop(self):
         """Run lighting updates aligned to every 5-minute mark."""
@@ -301,9 +391,25 @@ class LightsApp:
         await self._zigbee.set_property(
             group, "brightness", brightness, transition=transition
         )
-        await self._zigbee.set_property(
-            group, "color_temp", temperature, transition=transition
-        )
+        if circuit.lights:
+            await self._zigbee.set_property(
+                group, "color_temp", temperature, transition=transition
+            )
+        else:
+            # Dimmer switches driving dumb bulbs: no color support, and the
+            # turn-on level is governed by the switch's default-level settings
+            # (device-specific attributes, so they can't be set via the group).
+            # Non-hardwired switches get them too since they set the switch's
+            # own light intensity.
+            default_level = max(1, min(254, brightness))
+            for switch in circuit.switches:
+                device = self._zigbee.get_device_by_ieee(switch.ieee)
+                await self._zigbee.set_property(
+                    device, "defaultLevelLocal", default_level
+                )
+                await self._zigbee.set_property(
+                    device, "defaultLevelRemote", default_level
+                )
         self._last_sent[circuit.id] = (brightness, temperature)
 
     async def _heal_circuit_if_needed(
