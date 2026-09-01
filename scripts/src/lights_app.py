@@ -391,9 +391,25 @@ class LightsApp:
         await self._zigbee.set_property(
             group, "brightness", brightness, transition=transition
         )
-        await self._zigbee.set_property(
-            group, "color_temp", temperature, transition=transition
-        )
+        if circuit.lights:
+            await self._zigbee.set_property(
+                group, "color_temp", temperature, transition=transition
+            )
+        else:
+            # Dimmer switches driving dumb bulbs: no color support, and the
+            # turn-on level is governed by the switch's default-level settings
+            # (device-specific attributes, so they can't be set via the group).
+            default_level = max(1, min(254, brightness))
+            for switch in circuit.switches:
+                if switch.type != "hardwired":
+                    continue
+                device = self._zigbee.get_device_by_ieee(switch.ieee)
+                await self._zigbee.set_property(
+                    device, "defaultLevelLocal", default_level
+                )
+                await self._zigbee.set_property(
+                    device, "defaultLevelRemote", default_level
+                )
         self._last_sent[circuit.id] = (brightness, temperature)
 
     async def _heal_circuit_if_needed(
