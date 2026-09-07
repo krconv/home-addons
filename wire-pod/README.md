@@ -54,10 +54,15 @@ other devices on the network reliably.
 ## Upstream updates
 
 This add-on wraps the upstream `ghcr.io/kercre123/wire-pod` image directly
-rather than building wire-pod from source. When there's a new upstream
-release:
+rather than building wire-pod from source. Upstream only publishes `main`
+and `nightly` image tags (their tagged GitHub releases don't have matching
+images), so the [Dockerfile](./Dockerfile) pins to a `main` digest rather
+than a version tag. To pick up a newer upstream commit:
 
-1. Update the base image tag in [Dockerfile](./Dockerfile).
+1. Resolve the current digest for `main` (e.g. `docker buildx imagetools
+   inspect ghcr.io/kercre123/wire-pod:main`) and update the `FROM` line in
+   [Dockerfile](./Dockerfile), along with the comment noting which commit
+   it corresponds to.
 2. Bump `version` in [config.yaml](./config.yaml).
 3. Check `docker/entrypoint.sh` upstream in case the `WIREPOD_*` env var
    names [run.sh](./run.sh) relies on have changed.

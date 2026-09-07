@@ -1,4 +1,7 @@
-FROM ghcr.io/kercre123/wire-pod:v1.1.2
+# Upstream only publishes `main`/`nightly` image tags (no per-release tags
+# despite tagged GitHub releases existing), so we pin by digest for
+# reproducibility. This is `main` as of commit 347c45f (2026-08-27).
+FROM ghcr.io/kercre123/wire-pod@sha256:c3c52a0f27227caf407db4e24f199a1c35284ebde6b21d1e56d8e2f75e456b9a
 
 ARG BUILD_VERSION
 ARG BUILD_ARCH
