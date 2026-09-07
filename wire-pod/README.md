@@ -12,23 +12,34 @@ cloud for speech recognition, intent handling, and text-to-speech.
 
 ## Networking
 
-- The web setup UI (port 8080 inside the container) is published directly
-  at `http://<home-assistant-ip>:8080`. **Do not use ingress for this
-  add-on** — wire-pod's frontend JS calls its own API with hardcoded
-  absolute paths (`/api/is_api_v3`, `/api/get_config`, etc.), which escape
-  Supervisor's ingress subpath and hit Home Assistant's own core API
+This add-on runs with `host_network: true` — a deliberate exception to this
+repo's usual "avoid host networking unless truly needed" rule. It's needed
+because wire-pod computes the address it tells Vector to use itself, with
+no way to override it: `CreateServerConfig()` (in `chipper/pkg/wirepod/setup/certs.go`)
+calls `GetOutboundIP()`, which opens a UDP socket and reads back whatever
+local IP the OS routing picked — inside a bridge-networked container, that's
+the container's internal Docker IP, not this host's real LAN IP. There is no
+config field anywhere in wire-pod to override this manually. Host networking
+is what makes that self-detected IP correct.
+
+Two things to configure once it's running:
+
+- The web setup UI is at `http://<home-assistant-ip>:8080`. **Do not use
+  ingress for this add-on** — wire-pod's frontend JS calls its own API with
+  hardcoded absolute paths (`/api/is_api_v3`, `/api/get_config`, etc.), which
+  escape Supervisor's ingress subpath and hit Home Assistant's own core API
   instead of wire-pod's backend. This produces both a false-positive
   "webroot does not match" alert and real breakage (e.g. the "Add Robot"
-  flow 404ing on submit). You can still front port 8080 with your own
-  reverse proxy for an external domain, as long as it's mounted at the
-  proxy's root path and not a subpath.
-- The robot-facing endpoint (port 443 inside the container, a raw
-  TLS+gRPC listener carrying a self-signed cert wire-pod generates itself)
-  is published directly to the host at **8443**. This also stays outside
-  any reverse proxy: Vector validates the TLS handshake against wire-pod's
-  own self-signed certificate, so anything that terminates TLS in front of
-  it would break pairing. It gets its own port instead of sharing 443 with
-  other services on this host.
+  flow 404ing on submit).
+- In wire-pod's own settings (not this add-on's options), set the server
+  port to **8443** instead of the default 443, so it doesn't collide with
+  other services already using 443 on this host. wire-pod binds directly to
+  whatever port you set there under host networking — there's no separate
+  Docker-level port mapping to keep in sync.
+- The robot-facing endpoint stays outside any reverse proxy either way:
+  Vector validates the TLS handshake against wire-pod's own self-signed
+  certificate, so anything that terminates TLS in front of it would break
+  pairing.
 
 ## First-time setup
 
@@ -45,13 +56,11 @@ cloud for speech recognition, intent handling, and text-to-speech.
 
 1. On Vector's charger, raise and lower his lift twice to open the Customer
    Care Info Screen, then scroll to the network page to find his IP address.
-2. From WireOS's own settings page at `http://<vector-ip>:8080`, or via the
-   websetup flow, point Vector at `<home-assistant-ip>:8443` instead of the
-   default cloud endpoint.
-3. If the pairing flow only accepts an IP (no port field) and assumes 443,
-   pair normally, then edit `/data/data/server_config.json` on the robot
-   over root SSH afterward, changing the `jdocs`/`tms`/`chipper` entries
-   from `<ip>:443` to `<ip>:8443`.
+2. In wire-pod's web setup UI, use the "Add Robot" / SSH bot-setup flow with
+   Vector's IP and the robot's SSH private key. Once that succeeds, wire-pod
+   writes its own (now-correct, thanks to host networking) address and port
+   to the robot automatically — no manual IP/port entry needed on Vector's
+   side.
 
 ## Add-on options
 
