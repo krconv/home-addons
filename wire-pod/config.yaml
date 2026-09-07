@@ -1,6 +1,6 @@
 name: WirePod
 slug: wire-pod
-version: "1.1.2.2"
+version: "1.1.2.3"
 description: Self-hosted cloud replacement server for unlocked Anki Vector robots
 url: https://github.com/kercre123/wire-pod
 arch:
@@ -9,13 +9,11 @@ arch:
 startup: services
 boot: auto
 init: false
-ingress: true
-ingress_port: 8080
-panel_icon: mdi:robot
-panel_title: WirePod
 ports:
+  8080/tcp: 8080
   443/tcp: 8443
 ports_description:
+  8080/tcp: wire-pod web setup UI (must be accessed directly, not via ingress — see README)
   443/tcp: Robot TLS/gRPC endpoint (Vector's self-signed-cert-pinned connection; default host port 8443)
 watchdog: "http://[HOST]:[PORT:8080]/ok"
 options:
