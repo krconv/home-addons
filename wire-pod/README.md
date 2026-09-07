@@ -12,23 +12,29 @@ cloud for speech recognition, intent handling, and text-to-speech.
 
 ## Networking
 
-- The web setup UI (port 8080 inside the container) is reachable through
-  Supervisor's ingress — open it from the Home Assistant sidebar. You can
-  also front it with your own reverse proxy if you want an external domain;
-  it's a normal HTTP app with no caveats.
+- The web setup UI (port 8080 inside the container) is published directly
+  at `http://<home-assistant-ip>:8080`. **Do not use ingress for this
+  add-on** — wire-pod's frontend JS calls its own API with hardcoded
+  absolute paths (`/api/is_api_v3`, `/api/get_config`, etc.), which escape
+  Supervisor's ingress subpath and hit Home Assistant's own core API
+  instead of wire-pod's backend. This produces both a false-positive
+  "webroot does not match" alert and real breakage (e.g. the "Add Robot"
+  flow 404ing on submit). You can still front port 8080 with your own
+  reverse proxy for an external domain, as long as it's mounted at the
+  proxy's root path and not a subpath.
 - The robot-facing endpoint (port 443 inside the container, a raw
   TLS+gRPC listener carrying a self-signed cert wire-pod generates itself)
-  is published directly to the host at **8443**. This deliberately does
-  *not* go through ingress or a reverse proxy: Vector validates the TLS
-  handshake against wire-pod's own self-signed certificate, so anything
-  that terminates TLS in front of it (a normal reverse proxy) would break
-  pairing. It gets its own port instead of sharing 443 with other services
-  on this host.
+  is published directly to the host at **8443**. This also stays outside
+  any reverse proxy: Vector validates the TLS handshake against wire-pod's
+  own self-signed certificate, so anything that terminates TLS in front of
+  it would break pairing. It gets its own port instead of sharing 443 with
+  other services on this host.
 
 ## First-time setup
 
-1. Start the add-on and open its web setup UI from the Home Assistant
-   sidebar (ingress), or at `http://<home-assistant-ip>:8080` directly.
+1. Start the add-on and open its web setup UI at
+   `http://<home-assistant-ip>:8080` directly (not through the HA
+   sidebar/ingress — see Networking above).
 2. Walk through wire-pod's "Set up wire-pod" wizard — pick a speech-to-text
    engine (defaults to Vosk, the lighter option) and optionally add LLM API
    keys (OpenAI, Together, Ollama, or an OpenAI-compatible endpoint). These
