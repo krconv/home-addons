@@ -9,17 +9,14 @@ arch:
 startup: services
 boot: auto
 init: false
-host_network: true
+ingress: true
+ingress_port: 8080
+panel_icon: mdi:robot
+panel_title: WirePod
 ports:
-  80/tcp: 80
-  443/tcp: 443
-  8080/tcp: 8080
-  8084/tcp: 8084
+  443/tcp: 8443
 ports_description:
-  80/tcp: Robot API (HTTP, default 80)
-  443/tcp: Robot API (HTTPS/certs, default 443)
-  8080/tcp: wire-pod web setup UI (default 8080)
-  8084/tcp: jdocs service (default 8084)
+  443/tcp: Robot TLS/gRPC endpoint (Vector's self-signed-cert-pinned connection; default host port 8443)
 watchdog: "http://[HOST]:[PORT:8080]/ok"
 options:
   stt_service: vosk
