@@ -300,13 +300,19 @@ class LightsApp:
     async def _apply_nightlight(
         self, circuit: LightCircuit, nightlight: NightLight
     ) -> None:
-        group = self._zigbee.get_group_by_id(circuit.group_id)
         target = self._zigbee.get_device_by_ieee(nightlight.light)
         self.logger.info(
             f"Applying night-light to {circuit.friendly_name}: "
             f"{target.friendly_name} at level {nightlight.brightness}"
         )
-        await self._zigbee.set_property(group, "state", "OFF")
+        # Bulbs are switched off one by one rather than via the group: the
+        # hardwired switch is a group member, and a group OFF would flip its
+        # state and read as a paddle press that ends night-light.
+        for light in circuit.lights:
+            if light.ieee != nightlight.light:
+                await self._zigbee.set_property(
+                    self._zigbee.get_device_by_ieee(light.ieee), "state", "OFF"
+                )
         # One set so the bulb comes up at the night-light level rather than
         # flashing to its previous level first.
         await self._zigbee.set_properties(
