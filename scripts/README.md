@@ -19,6 +19,14 @@ Advanced lighting automation with:
 - Circuit-based organization with group management
 - Power cycling recovery for unresponsive devices
 - Support for custom light curves (e.g., ABL-LIGHT-Z-001)
+- Per-circuit night-light mode controlled over MQTT
+
+#### Night-light mode
+
+Each circuit with lights and a hardwired switch can be put into night-light mode, which turns the circuit off and keeps a single bulb on at a low level until the paddle is pressed or the mode is set back to auto.
+
+- Command topic `scripts/lights/<circuit_id>/set` with payload `{"mode": "auto"}` or `{"mode": "nightlight", "light": "<bulb ieee>", "brightness": 1}` (`brightness` is a raw Zigbee level 1-254, default 1).
+- State topic `scripts/lights/<circuit_id>/state` (retained) carries the current mode, e.g. `{"mode": "auto", "nightlight": null}` or `{"mode": "nightlight", "nightlight": {"light": "<bulb ieee>", "brightness": 1}}`. It is published for every circuit at startup and on every change.
 
 ## Installation
 
