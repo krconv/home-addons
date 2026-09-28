@@ -122,6 +122,17 @@ class LightsApp:
         self._modes: dict[str, CircuitMode] = {}
         self._circuits_by_id = {c.id: c for c in self._config.circuits}
         self._circuits_by_ieee = self._build_circuit_lookup()
+        self._hardwired_switch_by_circuit: dict[str, str] = {}
+        self._switch_states: dict[str, str] = {}
+        for circuit in self._config.circuits:
+            if not self._is_sync_eligible(circuit):
+                continue
+            switch = self._zigbee.get_device_by_ieee(
+                next(s.ieee for s in circuit.switches if s.type == "hardwired")
+            )
+            self._hardwired_switch_by_circuit[circuit.id] = switch.ieee_address
+            if (state := switch.state.properties.get("state")) is not None:
+                self._switch_states[circuit.id] = state
         self._zigbee.add_state_listener(self._on_device_state)
 
         # MqttClient is a singleton, so this is the ZigBeeClient's connected instance.
@@ -170,15 +181,21 @@ class LightsApp:
         circuit = self._circuits_by_ieee.get(device.ieee_address)
         if circuit is None:
             return
-        from_switch = device in self._zigbee.get_devices_by_ieee(
-            [s.ieee for s in circuit.switches if s.type == "hardwired"]
+        # zigbee2mqtt republishes the whole cached state on any attribute
+        # report, so only a change in the switch's state counts as a press.
+        switch_changed = False
+        if device.ieee_address == self._hardwired_switch_by_circuit.get(circuit.id):
+            previous = self._switch_states.get(circuit.id)
+            self._switch_states[circuit.id] = data["state"]
+            switch_changed = previous is not None and previous != data["state"]
+        self._loop.call_soon_threadsafe(
+            self._on_circuit_report, circuit, switch_changed
         )
-        self._loop.call_soon_threadsafe(self._on_circuit_report, circuit, from_switch)
 
-    def _on_circuit_report(self, circuit: LightCircuit, from_switch: bool) -> None:
+    def _on_circuit_report(self, circuit: LightCircuit, switch_changed: bool) -> None:
         if circuit.id in self._healing_circuits:
             return
-        if from_switch and self._nightlight_for(circuit) is not None:
+        if switch_changed and self._nightlight_for(circuit) is not None:
             # A paddle press (or HA command to the switch) ends night-light;
             # bulb reports only reconcile towards the night-light target.
             self._create_mode_task(self._set_mode(circuit, CircuitMode()))
