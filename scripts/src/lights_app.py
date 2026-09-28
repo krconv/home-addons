@@ -80,6 +80,8 @@ class CircuitMode(pydantic.BaseModel):
 SYNC_GRACE_SECONDS = 2
 
 MODE_TOPIC_PREFIX = "scripts/lights"
+# The schedule is skipped in night-light mode, so pin a warm white (mireds).
+NIGHTLIGHT_COLOR_TEMP = 370
 
 
 class LightsApp:
@@ -317,7 +319,12 @@ class LightsApp:
         # flashing to its previous level first.
         await self._zigbee.set_properties(
             target,
-            {"state": "ON", "brightness": nightlight.brightness, "transition": 1},
+            {
+                "state": "ON",
+                "brightness": nightlight.brightness,
+                "color_temp": NIGHTLIGHT_COLOR_TEMP,
+                "transition": 1,
+            },
         )
 
     async def _sync_circuit_to_nightlight(
