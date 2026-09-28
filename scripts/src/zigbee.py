@@ -258,6 +258,19 @@ class ZigBeeClient:
             f"{device.base_topic}/{device.friendly_name}/get", {property: ""}
         )
 
+    async def set_properties(
+        self, device: ZigBeeDevice | ZigBeeGroup, payload: dict[str, typing.Any]
+    ) -> None:
+        """Set several properties in one zigbee2mqtt message."""
+        self._mqtt.publish(f"{device.base_topic}/{device.friendly_name}/set", payload)
+        for property in payload:
+            # transition modifies the set; it is not a readable attribute.
+            if property == "transition":
+                continue
+            self._mqtt.publish(
+                f"{device.base_topic}/{device.friendly_name}/get", {property: ""}
+            )
+
     async def set_and_verify_property(
         self,
         device: ZigBeeDevice,

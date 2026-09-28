@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import json
 import logging
 import math
 import os
@@ -9,7 +10,7 @@ import typing
 import pydantic
 import yaml
 
-from . import zigbee
+from . import mqtt, zigbee
 
 
 class LightDevice(pydantic.BaseModel):
@@ -53,15 +54,39 @@ class LightsConfig(pydantic.BaseModel):
     schedule: list[LightSchedule]
 
 
+class NightLight(pydantic.BaseModel):
+    light: str  # ieee of the one bulb to keep on, colon form as in lights.yaml
+    brightness: int = 1  # raw zigbee level 1..254
+
+    @pydantic.field_validator("brightness")
+    @classmethod
+    def _clamp_brightness(cls, value: int) -> int:
+        return max(1, min(254, value))
+
+
+class CircuitMode(pydantic.BaseModel):
+    mode: typing.Literal["auto", "nightlight"] = "auto"
+    nightlight: NightLight | None = None
+
+    @pydantic.model_validator(mode="after")
+    def _nightlight_matches_mode(self) -> "CircuitMode":
+        if (self.mode == "nightlight") != (self.nightlight is not None):
+            raise ValueError("nightlight settings are required iff mode is nightlight")
+        return self
+
+
 # Grace window before enforcing lights == switch, so a legitimate paddle press
 # whose light report arrives before the switch's own report isn't reverted.
 SYNC_GRACE_SECONDS = 2
+
+MODE_TOPIC_PREFIX = "scripts/lights"
 
 
 class LightsApp:
     """Main app for managing home lighting with adaptive features and health monitoring."""
 
     _zigbee: zigbee.ZigBeeClient
+    _mqtt: mqtt.MqttClient
     _config: LightsConfig
     _lighting_lock: asyncio.Lock = asyncio.Lock()
     _health_lock: asyncio.Lock = asyncio.Lock()
@@ -92,9 +117,29 @@ class LightsApp:
 
         self._loop = asyncio.get_running_loop()
         self._sync_tasks: dict[str, asyncio.Task] = {}
+        self._mode_tasks: set[asyncio.Task] = set()
         self._healing_circuits: set[str] = set()
+        self._modes: dict[str, CircuitMode] = {}
+        self._circuits_by_id = {c.id: c for c in self._config.circuits}
         self._circuits_by_ieee = self._build_circuit_lookup()
+        self._hardwired_switch_by_circuit: dict[str, str] = {}
+        self._switch_states: dict[str, str] = {}
+        for circuit in self._config.circuits:
+            if not self._is_sync_eligible(circuit):
+                continue
+            switch = self._zigbee.get_device_by_ieee(
+                next(s.ieee for s in circuit.switches if s.type == "hardwired")
+            )
+            self._hardwired_switch_by_circuit[circuit.id] = switch.ieee_address
+            if (state := switch.state.properties.get("state")) is not None:
+                self._switch_states[circuit.id] = state
         self._zigbee.add_state_listener(self._on_device_state)
+
+        # MqttClient is a singleton, so this is the ZigBeeClient's connected instance.
+        self._mqtt = mqtt.MqttClient(self.logger, self.addon_config)
+        self._mqtt.subscribe(f"{MODE_TOPIC_PREFIX}/+/set", self._on_mode_command)
+        for circuit in self._config.circuits:
+            self._publish_mode_state(circuit)
 
         await self._setup_schedulers()
 
@@ -109,7 +154,7 @@ class LightsApp:
         for circuit in self._config.circuits:
             if not circuit.lights:
                 continue
-            if not any(s.type == "hardwired" for s in circuit.switches):
+            if not self._is_sync_eligible(circuit):
                 self.logger.warning(
                     f"Circuit {circuit.friendly_name} has no hardwired switch; "
                     "skipping switch state sync"
@@ -124,6 +169,11 @@ class LightsApp:
                 lookup[device.ieee_address] = circuit
         return lookup
 
+    def _is_sync_eligible(self, circuit: LightCircuit) -> bool:
+        return bool(circuit.lights) and any(
+            s.type == "hardwired" for s in circuit.switches
+        )
+
     def _on_device_state(self, device: zigbee.ZigBeeDevice, data: dict) -> None:
         """State listener; runs on the MQTT client thread."""
         if "state" not in data:
@@ -131,7 +181,26 @@ class LightsApp:
         circuit = self._circuits_by_ieee.get(device.ieee_address)
         if circuit is None:
             return
-        self._loop.call_soon_threadsafe(self._schedule_circuit_sync, circuit)
+        # zigbee2mqtt republishes the whole cached state on any attribute
+        # report, so only a change in the switch's state counts as a press.
+        switch_changed = False
+        if device.ieee_address == self._hardwired_switch_by_circuit.get(circuit.id):
+            previous = self._switch_states.get(circuit.id)
+            self._switch_states[circuit.id] = data["state"]
+            switch_changed = previous is not None and previous != data["state"]
+        self._loop.call_soon_threadsafe(
+            self._on_circuit_report, circuit, switch_changed
+        )
+
+    def _on_circuit_report(self, circuit: LightCircuit, switch_changed: bool) -> None:
+        if circuit.id in self._healing_circuits:
+            return
+        if switch_changed and self._nightlight_for(circuit) is not None:
+            # A paddle press (or HA command to the switch) ends night-light;
+            # bulb reports only reconcile towards the night-light target.
+            self._create_mode_task(self._set_mode(circuit, CircuitMode()))
+            return
+        self._schedule_circuit_sync(circuit)
 
     def _schedule_circuit_sync(self, circuit: LightCircuit) -> None:
         if circuit.id in self._healing_circuits:
@@ -144,11 +213,136 @@ class LightsApp:
             self._sync_circuit_to_switch(circuit)
         )
 
+    def _cancel_pending_sync(self, circuit: LightCircuit) -> None:
+        pending = self._sync_tasks.pop(circuit.id, None)
+        if pending is not None:
+            pending.cancel()
+
+    def _create_mode_task(
+        self, coro: typing.Coroutine[typing.Any, typing.Any, None]
+    ) -> None:
+        task = asyncio.create_task(coro)
+        self._mode_tasks.add(task)
+        task.add_done_callback(self._mode_tasks.discard)
+
+    def _nightlight_for(self, circuit: LightCircuit) -> NightLight | None:
+        return self._modes.get(circuit.id, CircuitMode()).nightlight
+
+    def _on_mode_command(self, topic: str, payload: str) -> None:
+        """Mode command listener; runs on the MQTT client thread."""
+        circuit_id = topic.split("/")[-2]
+        circuit = self._circuits_by_id.get(circuit_id)
+        if circuit is None:
+            self.logger.warning(f"Mode command for unknown circuit {circuit_id!r}")
+            return
+        try:
+            new_mode = self._parse_mode_command(payload)
+        except (json.JSONDecodeError, pydantic.ValidationError) as e:
+            self.logger.warning(
+                f"Ignoring invalid mode command for {circuit.friendly_name}: "
+                f"{payload!r} ({e})"
+            )
+            return
+        self._loop.call_soon_threadsafe(
+            self._create_mode_task, self._set_mode(circuit, new_mode)
+        )
+
+    def _parse_mode_command(self, payload: str) -> CircuitMode:
+        data = json.loads(payload)
+        if isinstance(data, dict) and data.get("mode") == "nightlight":
+            return CircuitMode(
+                mode="nightlight", nightlight=NightLight.model_validate(data)
+            )
+        return CircuitMode.model_validate(data)
+
+    def _publish_mode_state(self, circuit: LightCircuit) -> None:
+        self._mqtt.publish(
+            f"{MODE_TOPIC_PREFIX}/{circuit.id}/state",
+            self._modes.get(circuit.id, CircuitMode()).model_dump(),
+            retain=True,
+        )
+
+    async def _set_mode(self, circuit: LightCircuit, new_mode: CircuitMode) -> None:
+        if new_mode == self._modes.get(circuit.id, CircuitMode()):
+            return
+
+        if new_mode.nightlight is not None:
+            if not self._is_sync_eligible(circuit):
+                self.logger.warning(
+                    f"Refusing night-light for {circuit.friendly_name}: circuit "
+                    "needs lights and a hardwired switch"
+                )
+                return
+            if new_mode.nightlight.light not in {l.ieee for l in circuit.lights}:
+                self.logger.warning(
+                    f"Refusing night-light for {circuit.friendly_name}: "
+                    f"{new_mode.nightlight.light} is not one of its lights"
+                )
+                return
+
+        self._modes[circuit.id] = new_mode
+        self._publish_mode_state(circuit)
+        self.logger.info(
+            f"Circuit {circuit.friendly_name} mode -> {new_mode.mode}"
+            + (
+                f" ({new_mode.nightlight.light} @ {new_mode.nightlight.brightness})"
+                if new_mode.nightlight is not None
+                else ""
+            )
+        )
+
+        self._cancel_pending_sync(circuit)
+        if new_mode.nightlight is not None:
+            await self._apply_nightlight(circuit, new_mode.nightlight)
+        else:
+            self._schedule_circuit_sync(circuit)
+
+    async def _apply_nightlight(
+        self, circuit: LightCircuit, nightlight: NightLight
+    ) -> None:
+        group = self._zigbee.get_group_by_id(circuit.group_id)
+        target = self._zigbee.get_device_by_ieee(nightlight.light)
+        self.logger.info(
+            f"Applying night-light to {circuit.friendly_name}: "
+            f"{target.friendly_name} at level {nightlight.brightness}"
+        )
+        await self._zigbee.set_property(group, "state", "OFF")
+        # One set so the bulb comes up at the night-light level rather than
+        # flashing to its previous level first.
+        await self._zigbee.set_properties(
+            target,
+            {"state": "ON", "brightness": nightlight.brightness, "transition": 1},
+        )
+
+    async def _sync_circuit_to_nightlight(
+        self, circuit: LightCircuit, nightlight: NightLight
+    ) -> None:
+        mismatched: list[str] = []
+        for light in circuit.lights:
+            device = self._zigbee.get_device_by_ieee(light.ieee)
+            expected = "ON" if light.ieee == nightlight.light else "OFF"
+            actual = device.state.properties.get("state")
+            if actual not in (None, expected):
+                mismatched.append(f"{device.friendly_name} {actual}")
+        if not mismatched:
+            return
+
+        self.logger.info(
+            f"Circuit {circuit.friendly_name} out of sync with night-light "
+            f"(mismatched: {', '.join(mismatched)}); re-applying"
+        )
+        await self._apply_nightlight(circuit, nightlight)
+
     async def _sync_circuit_to_switch(self, circuit: LightCircuit) -> None:
         """Enforce that a circuit's lights match its hardwired switch state."""
         await asyncio.sleep(SYNC_GRACE_SECONDS)
 
         if circuit.id in self._healing_circuits:
+            return
+
+        nightlight = self._nightlight_for(circuit)
+        if nightlight is not None:
+            await self._sync_circuit_to_nightlight(circuit, nightlight)
             return
 
         switch_state = self._get_hardwired_switch_state(circuit)
@@ -244,7 +438,10 @@ class LightsApp:
                 circuit: LightCircuit, brightness: int, temperature: int
             ) -> None:
                 await asyncio.sleep(random.uniform(0, 60))
-                if circuit.id in self._healing_circuits:
+                if (
+                    circuit.id in self._healing_circuits
+                    or self._nightlight_for(circuit) is not None
+                ):
                     return
                 await self._update_circuit_lighting(
                     circuit, brightness, temperature, default_transition
@@ -272,15 +469,17 @@ class LightsApp:
                 # power-cycles switches, which would otherwise look like
                 # mismatches and trigger competing commands.
                 self._healing_circuits.add(circuit.id)
-                pending_sync = self._sync_tasks.pop(circuit.id, None)
-                if pending_sync is not None:
-                    pending_sync.cancel()
+                self._cancel_pending_sync(circuit)
                 try:
                     if await self._heal_circuit_if_needed(circuit, now):
                         # After a repair, quickly bring lights back to the desired state
-                        await self._update_circuit_lighting(
-                            circuit, brightness, temperature, 1
-                        )
+                        nightlight = self._nightlight_for(circuit)
+                        if nightlight is not None:
+                            await self._apply_nightlight(circuit, nightlight)
+                        else:
+                            await self._update_circuit_lighting(
+                                circuit, brightness, temperature, 1
+                            )
                 finally:
                     self._healing_circuits.discard(circuit.id)
 
