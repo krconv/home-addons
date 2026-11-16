@@ -21,6 +21,7 @@ class AppManager:
         # Run alongside self.apps but never count toward health or startup success, so their
         # failures are logged and never stop or restart the add-on.
         self.background_apps = []
+        self._health_server = None
         self._shutdown_event = asyncio.Event()
 
     def _load_addon_config(self) -> dict:
