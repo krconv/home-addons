@@ -153,6 +153,64 @@ poetry install
 poetry run python -m src.main
 ```
 
+### Tests and the hvac simulation
+
+The tests and the hvac house simulator live in `tests/` and are not copied into the image. They need `pytest`, plus `matplotlib` for the day plots. Run them from `scripts/`:
+
+```bash
+python -m pytest tests                    # unit tests, the AppManager isolation tests and a one-night sim
+python -m tests.hvac.sim.run all          # the full scenario suite; writes tests/hvac/out/<scenario>/report.md
+```
+
+`sim.run all` exits 1 while West Wing comfort and floor shortfalls show up in `week_nominal`, `faults` and `faults_autoreset`. Those come from the house model, not the app, and are reported rather than fixed. Compare the invariant table with the previous run instead of relying on the exit code.
+
+## Deployment
+
+Supervisor builds this add-on on the Home Assistant host from the repository's `main` branch. A commit reaches the running add-on only when two things happen:
+
+1. Supervisor reloads the add-on store, which fetches `main` again. It does this every 3 hours on its own.
+2. The add-on is updated. Supervisor only offers an update when `version` in `config.yaml` differs from the installed one, so every change that should ship needs a version bump. Updating rebuilds the image on the host and restarts the add-on.
+
+The add-on's `auto_update` switch does cover locally built add-ons, but Supervisor checks for auto updates every 16 hours and skips a version until a day after it first saw it. With it on, a change ships one to three days after merge.
+
+For a fast deploy, the GitHub workflow `.github/workflows/scripts.yaml` runs the tests and a Docker build on every pull request and push. After a push to `main` passes, it calls a Home Assistant webhook. An automation behind that webhook asks Supervisor to reload the store and installs the update:
+
+```yaml
+alias: Deploy Scripts add-on
+mode: queued
+triggers:
+  - trigger: webhook
+    webhook_id: "<long random id>"
+    allowed_methods: [POST]
+    local_only: false
+actions:
+  # A manual refresh of an add-on update entity makes Supervisor reload the store first.
+  - action: homeassistant.update_entity
+    target:
+      entity_id: update.scripts_update
+  - wait_for_trigger:
+      - trigger: state
+        entity_id: update.scripts_update
+        to: "on"
+    timeout: "00:02:00"
+    continue_on_timeout: true
+  - condition: state
+    entity_id: update.scripts_update
+    state: "on"
+  - action: update.install
+    target:
+      entity_id: update.scripts_update
+    data:
+      backup: true
+```
+
+If Home Assistant is not reachable from the internet, keep the same actions and replace the webhook trigger with a `time_pattern` trigger every 15 minutes. No GitHub secret is needed then, and the workflow's deploy step does nothing.
+
+Setup:
+
+1. In Home Assistant, create the automation above with a long random `webhook_id`.
+2. In GitHub, add the repository secret `HA_DEPLOY_WEBHOOK_URL` with the full webhook URL, for example `https://<your Nabu Casa or external URL>/api/webhook/<webhook_id>`. The webhook id is the only credential, so treat the URL as a secret.
+
 ## Troubleshooting
 
 ### Common Issues
