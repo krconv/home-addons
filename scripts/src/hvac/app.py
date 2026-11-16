@@ -19,6 +19,9 @@ from .ha import HaClient, RestClient
 # The plan is a calendar of local times at the house, whatever the host's clock zone.
 PLAN_TZ = ZoneInfo("America/New_York")
 TICK_S = 60
+# A tick that hasn't finished by then is abandoned and logged; the next tick reconciles.
+TICK_TIMEOUT_S = 45
+ALIVE_EVERY = 60
 STATE_DIR = "/data/hvac"
 
 DEFAULT_ENTITIES = {
@@ -80,6 +83,8 @@ class HvacApp:
         self.log_path = os.path.join(state_dir, "journal.jsonl")
         self.mem = Mem()
         self._task: Optional[asyncio.Task] = None
+        self._step = "idle"
+        self._ticks = 0
 
     async def initialize(self) -> None:
         self.load()
@@ -95,23 +100,36 @@ class HvacApp:
         due = loop.time()
         while True:
             try:
-                await self.tick()
+                await asyncio.wait_for(self.tick(), TICK_TIMEOUT_S)
+            except asyncio.TimeoutError:
+                self.logger.warning(f"hvac tick timed out after {TICK_TIMEOUT_S}s in step {self._step}")
             except Exception:  # a failed tick never stops the loop or the other apps; the next tick reconciles
-                self.logger.exception("hvac tick failed")
+                self.logger.exception(f"hvac tick failed in step {self._step}")
+            self._ticks += 1
+            if self._ticks % ALIVE_EVERY == 0:
+                self.logger.info(f"hvac alive: {self._ticks} ticks")
             due += TICK_S
             await asyncio.sleep(max(0.0, due - loop.time()))
 
     async def tick(self) -> None:
         now = self.clock()
+        self._step = "observe"
         obs = await self.observe(now)
+        self._step = "decide"
         cmds, mem, events = decide(now, self.plan, obs, self.mem, self.cfg)
+        self._step = "send"
         for c in cmds:
             await self.send(c)
         self.mem = mem
+        self._step = "persist"
         self._save()
         self._journal(now, cmds, events)
+        self._step = "status"
         state, attrs = status(now, self.plan, mem)
+        # Changes every tick, so the sensor's last_updated is a liveness signal.
+        attrs["tick"] = now.isoformat(timespec="seconds")
         await self.client.set_state(self.ent["status"], state, attrs)
+        self._step = "idle"
 
     async def observe(self, now: datetime) -> Observation:
         """One read of every entity. A transport error raises and skips the tick rather than
