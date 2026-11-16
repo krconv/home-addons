@@ -9,6 +9,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from . import lights_app, mqtt
 
+BACKGROUND_APPS = {"hvac"}
+
 class AppManager:
     """Main application manager for the Scripts add-on."""
 
@@ -16,6 +18,9 @@ class AppManager:
         self.addon_config = self._load_addon_config()
         self.logger = self._setup_logging()
         self.apps = []
+        # Run alongside self.apps but never count toward health or startup success, so their
+        # failures are logged and never stop or restart the add-on.
+        self.background_apps = []
         self._shutdown_event = asyncio.Event()
 
     def _load_addon_config(self) -> dict:
@@ -67,7 +72,7 @@ class AppManager:
             try:
                 app = await self._create_app(app_name, app_config)
                 if app:
-                    self.apps.append(app)
+                    (self.background_apps if app_name in BACKGROUND_APPS else self.apps).append(app)
                     self.logger.info(f"Successfully initialized app: {app_name}")
             except Exception as e:
                 self.logger.error(f"Failed to initialize app {app_name}: {e}")
@@ -83,6 +88,17 @@ class AppManager:
                 logger=logging.getLogger(f"scripts.{app_name}"),
                 addon_config=self.addon_config,
                 app_config=app_config
+            )
+            await app.initialize()
+            return app
+        elif app_name == "hvac":
+            # Imported here so a broken hvac module fails only this app; initialize() logs and moves on.
+            from .hvac.app import HvacApp
+
+            app = HvacApp(
+                logger=logging.getLogger(f"scripts.{app_name}"),
+                addon_config=self.addon_config,
+                app_config=app_config,
             )
             await app.initialize()
             return app
@@ -112,7 +128,7 @@ class AppManager:
             self.logger.error("No apps initialized successfully, exiting")
             return
 
-        self.logger.info(f"Running with {len(self.apps)} active apps")
+        self.logger.info(f"Running with {len(self.apps) + len(self.background_apps)} active apps")
 
         # Wait for shutdown signal
         await self._shutdown_event.wait()

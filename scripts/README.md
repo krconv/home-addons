@@ -28,6 +28,32 @@ Each circuit with lights and a hardwired switch can be put into night-light mode
 - Command topic `scripts/lights/<circuit_id>/set` with payload `{"mode": "auto"}` or `{"mode": "nightlight", "light": "<bulb ieee>", "brightness": 1}` (`brightness` is a raw Zigbee level 1-254, default 1).
 - State topic `scripts/lights/<circuit_id>/state` (retained) carries the current mode, e.g. `{"mode": "auto", "nightlight": null}` or `{"mode": "nightlight", "nightlight": {"light": "<bulb ieee>", "brightness": 1}}`. It is published for every circuit at startup and on every change.
 
+### HVAC App
+
+Runs the week of HVAC experiments from the lab plan. Every 60 seconds it reads the thermostats and sensors from Home Assistant, decides what each zone, the East fan, the ERV and `automation.erv_control` should be doing, and sends the service calls that differ.
+
+- Talks to Home Assistant through the Supervisor's core API proxy (`homeassistant_api: true`), so it needs no token or URL in the options.
+- Writes its status to `sensor.hvac_lab_status`. The state is `<test_id>/<phase>`, `baseline/day`, `baseline/night` or `disabled`; the attributes carry the night grade, voids, lockout state and the last events.
+- `input_boolean.hvac_lab_enabled` is the kill switch. Turning it off restores the baseline once, turns `automation.erv_control` back on, then leaves everything alone until it is turned on again. The app does not create the helper; create it in Home Assistant first. A missing or unavailable helper reads as off.
+- Keeps its memory in `/data/hvac/mem.json` and appends every command and event to `/data/hvac/journal.jsonl`, so a restart picks up where it left off.
+- Runs beside the lights app and never affects it. A failure while starting is logged and the add-on carries on without hvac. A failed tick is logged and retried on the next tick. The health endpoint the watchdog polls ignores hvac, so an hvac problem never restarts the add-on. Run it with lights (or another app) enabled; on its own the add-on has no app the health check counts.
+
+Enable it by adding it to `apps`. Options live in the separate `hvac` block:
+
+```yaml
+apps:
+  - name: lights
+    enabled: true
+    config_file: /config/lights.yaml
+  - name: hvac
+    enabled: true
+hvac:
+  dry_run: true             # log and journal every service call, send none
+  lockout_auto_reset: false # on a suspected lockout, turn the heat pump off for 2 minutes once a night
+```
+
+`dry_run` defaults to `true`. Leave it on for a day and read the `DRY` lines in the add-on log or the journal before turning it off.
+
 ## Installation
 
 1. Add this repository to your Home Assistant add-on store
@@ -49,6 +75,9 @@ apps:                             # List of apps to run
   - name: lights                  # App name
     enabled: true                 # Enable/disable app
     config_file: /config/lights.yaml  # Path to app config file
+hvac:                             # Options for the hvac app (see HVAC App)
+  dry_run: true
+  lockout_auto_reset: false
 ```
 
 ### Lights App Configuration

@@ -1,5 +1,5 @@
 name: "Scripts"
-version: "2026.9.28c"
+version: "2026.11.16"
 slug: "scripts"
 description: "General-purpose Python automation platform for Home Assistant integrations"
 arch:
@@ -11,6 +11,7 @@ startup: services
 services:
   - mqtt:want
 watchdog: "http://[HOST]:[PORT:8787]/health"
+homeassistant_api: true
 options:
   log_level: "info"
   zigbee_base_topics: []
@@ -18,6 +19,9 @@ options:
     - name: "lights"
       enabled: true
       config_file: "/config/lights.yaml"
+  hvac:
+    dry_run: true
+    lockout_auto_reset: false
 schema:
   log_level: "list(debug|info|warning|error)"
   zigbee_base_topics:
@@ -26,6 +30,9 @@ schema:
     - name: "str"
       enabled: "bool"
       config_file: "str?"
+  hvac:
+    dry_run: "bool?"
+    lockout_auto_reset: "bool?"
 map:
   - share:rw
   - config:ro
