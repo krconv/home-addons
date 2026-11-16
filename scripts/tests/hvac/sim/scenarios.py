@@ -9,14 +9,14 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import Optional
 
-from .calibrate import calibrated_params
+from .calibration import calibrated_params
 from .house import Params, THERMOSTATS
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXTURE = os.path.join(HERE, "fixtures", "weather_2026-11-16_23.json")
 START = datetime(2026, 11, 16, 12, 0)
 END = datetime(2026, 11, 23, 12, 0)
-# Default house: fitted to real history by sim/calibrate.py (data/calibration.json).
+# Default house: fitted to real history by lab sim/calibrate.py (fixtures/calibration.json).
 CALIBRATED = calibrated_params()
 # The hand-set priors from DESIGN.md, kept as a named variant.
 PRIORS = Params()

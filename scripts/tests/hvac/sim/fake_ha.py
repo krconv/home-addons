@@ -1,18 +1,16 @@
-"""A fake AppDaemon + Home Assistant around the house simulator.
+"""A fake Home Assistant core API around the house simulator.
 
-`install(world)` puts `appdaemon.plugins.hass.hassapi` into sys.modules so the unmodified app
-imports it. The World owns the virtual clock, the scheduler, the HA state store, and the service
-router into the simulated devices. Thermostat state reaches HA only on a 5-minute poll with a
-per-device phase, and each thermostat has unavailable windows.
+The World owns the virtual clock, the HA state store, and the service router into the simulated
+devices; FakeHa is the HaClient that HvacApp talks to. Thermostat state reaches HA only on a
+5-minute poll with a per-device phase, and each thermostat has unavailable windows.
 """
 from __future__ import annotations
 
-import itertools
-import sys
-import types
+import json
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Callable, Optional
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 from .house import THERMOSTATS, House, round_half_up
@@ -26,16 +24,6 @@ class ServiceError(Exception):
 
 
 @dataclass
-class Timer:
-    handle: str
-    owner: object
-    next: datetime
-    interval: timedelta
-    cb: Callable
-    kwargs: dict
-
-
-@dataclass
 class World:
     now: datetime
     house: House
@@ -44,8 +32,6 @@ class World:
     states: dict = field(default_factory=dict)         # entity -> {"state", "attributes", "last_updated"}
     commands: list = field(default_factory=list)       # (t, service, data, ok)
     logs: list = field(default_factory=list)
-    timers: list = field(default_factory=list)
-    _ids: itertools.count = field(default_factory=itertools.count)
 
     # --- HA state ------------------------------------------------------------
     def set(self, entity: str, state, **attributes) -> None:
@@ -120,82 +106,40 @@ class World:
         else:
             raise ServiceError(f"unknown service {service}")
 
-    # --- scheduler -----------------------------------------------------------
-    def add_timer(self, owner, first: datetime, interval: timedelta, cb, kwargs) -> str:
-        handle = f"timer-{next(self._ids)}"
-        self.timers.append(Timer(handle, owner, first, interval, cb, kwargs))
-        return handle
 
-    def cancel_owner(self, owner) -> None:
-        self.timers = [t for t in self.timers if t.owner is not owner]
-
-    def run_due(self) -> None:
-        for t in sorted(list(self.timers), key=lambda t: t.next):
-            if t in self.timers and t.next <= self.now:
-                t.next += t.interval
-                t.cb(**t.kwargs)
+def _wire(body: dict) -> dict:
+    return json.loads(json.dumps(body, default=str))
 
 
-class Hass:
-    """The slice of appdaemon.plugins.hass.hassapi.Hass that HvacLab uses."""
+class FakeHa:
+    """The HaClient HvacApp uses, answered from the World's state store and service router.
 
-    def __init__(self, world: World, name: str = "hvac_lab", args: Optional[dict] = None):
+    Mirrors the core REST API: a missing entity reads as None, a refused service call raises, and
+    whatever the app sends goes through JSON the way RestClient sends it.
+    """
+
+    def __init__(self, world: World):
         self._world = world
-        self.name = name
-        self.args = args or {}
 
-    def run_every(self, callback, start=None, interval=0, *args, **kwargs) -> str:
-        w = self._world
-        iv = interval if isinstance(interval, timedelta) else timedelta(seconds=float(interval))
-        if start in (None, "now"):
-            first = w.now + iv
-        elif start == "immediate":
-            first = w.now
-        elif isinstance(start, datetime):
-            first = start
-        else:
-            raise NotImplementedError(f"start={start!r}")
-        return w.add_timer(self, first, iv, callback, kwargs)
-
-    def get_state(self, entity_id=None, attribute=None, default=None, namespace=None, copy=True, **kwargs):
+    async def get_state(self, entity_id: str) -> Optional[dict]:
         st = self._world.states.get(entity_id)
-        if st is None:
-            return default
-        if attribute is None:
-            return st["state"]
-        if attribute == "all":
-            return {**st, "attributes": dict(st["attributes"])}
-        return st["attributes"].get(attribute, default)
+        return None if st is None else {**st, "entity_id": entity_id, "attributes": dict(st["attributes"])}
 
-    def call_service(self, service: str, namespace=None, timeout=None, callback=None, **kwargs):
+    async def call_service(self, service: str, data: dict) -> None:
         if "/" not in service:
             raise ValueError("service must be domain/service")
-        self._world.service(service, kwargs)
+        self._world.service(service, _wire(data))
 
-    def set_state(self, entity_id: str, state=None, namespace=None, attributes=None, replace=False,
-                  check_existence=True, **kwargs):
-        self._world.set(entity_id, state, **(attributes or {}), **kwargs)
-        return self._world.states[entity_id]
-
-    def log(self, msg: str, *args, level="INFO", **kwargs) -> None:
-        self._world.logs.append((self._world.now, level, msg))
-
-    def get_now(self, aware: bool = True) -> datetime:
-        return self._world.now.replace(tzinfo=TZ) if aware else self._world.now
-
-    def datetime(self, aware: bool = False) -> datetime:
-        return self.get_now(aware)
+    async def set_state(self, entity_id: str, state: str, attributes: dict) -> None:
+        self._world.set(entity_id, state, **_wire(attributes))
 
 
-def install() -> None:
-    """Make `import appdaemon.plugins.hass.hassapi as hass` resolve to this fake."""
-    names = ["appdaemon", "appdaemon.plugins", "appdaemon.plugins.hass", "appdaemon.plugins.hass.hassapi"]
-    mods = []
-    for n in names:
-        m = types.ModuleType(n)
-        m.__path__ = []  # mark as package
-        sys.modules[n] = m
-        mods.append(m)
-    for parent, child, attr in zip(mods, mods[1:], ["plugins", "hass", "hassapi"]):
-        setattr(parent, attr, child)
-    mods[-1].Hass = Hass
+class LogCapture(logging.Handler):
+    """Records the app's log lines into world.logs as (virtual time, level, message)."""
+
+    def __init__(self, world: World):
+        super().__init__(logging.DEBUG)
+        self._world = world
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self._world.logs.append((self._world.now, record.levelname, record.getMessage()))

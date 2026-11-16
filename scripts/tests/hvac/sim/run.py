@@ -1,4 +1,4 @@
-"""python -m sim.run [all|week_nominal|week_cold|faults|sweep]
+"""python -m tests.hvac.sim.run [all|week_nominal|week_cold|faults|sweep], from scripts/
 
 Writes out/<scenario>/{timeline.csv, day-*.png, report.md}. Exits 1 if any invariant FAILs in a
 fatal scenario (week_nominal, faults).
@@ -12,15 +12,14 @@ from collections import Counter
 from dataclasses import replace
 from datetime import timedelta
 
+from src.hvac.core.plan import week_plan
+
+from . import scenarios
+from .checks import check_dry_run, comfort_violations, Ctx, _windows, run_checks, signal_quality
+from .engine import simulate as _simulate
+from .engine import simulate
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path[:0] = [os.path.join(ROOT, "apps"), ROOT]
-
-from hvac_lab.core.plan import week_plan  # noqa: E402
-
-from . import scenarios  # noqa: E402
-from .checks import check_dry_run, comfort_violations, Ctx, _windows, run_checks, signal_quality  # noqa: E402
-from .engine import simulate as _simulate  # noqa: E402
-from .engine import simulate  # noqa: E402
 
 OUT = os.path.join(ROOT, "out")
 ZCOLORS = {"EAST": "tab:red", "WEST": "tab:orange", "FIRST": "tab:green", "BASEMENT": "tab:blue", "GARAGE": "tab:gray"}

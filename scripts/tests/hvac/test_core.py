@@ -3,10 +3,10 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from hvac_lab.core.mem import Mem
-from hvac_lab.core.plan import Plan, baseline, week_plan
-from hvac_lab.core.policy import decide
-from hvac_lab.core.types import (OFF, Config, DesiredPatch, Observation, Segment, ZoneCommand, ZoneObs,
+from src.hvac.core.mem import Mem
+from src.hvac.core.plan import Plan, baseline, week_plan
+from src.hvac.core.policy import decide
+from src.hvac.core.types import (OFF, Config, DesiredPatch, Observation, Segment, ZoneCommand, ZoneObs,
                                  heat)
 
 PLAN = week_plan()

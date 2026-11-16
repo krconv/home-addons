@@ -1,19 +1,19 @@
-"""Run the unmodified HvacLab app against the fake AppDaemon and the house, minute by minute."""
+"""Run the unmodified HvacApp against the fake Home Assistant and the house, minute by minute."""
 from __future__ import annotations
 
-import importlib
+import asyncio
 import json
+import logging
 import os
-import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from . import fake_appdaemon
+from src.hvac.app import HvacApp
+
+from . import fake_ha
 from .house import HEATED, THERMOSTATS, ZONES, House, Lockout, round_half_up
 from .scenarios import Scenario, Weather
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-APPS = os.path.join(ROOT, "apps")
 CO2_OUT = 420.0
 HOUSE_FT3 = 30000.0
 INFIL_CFM = 75.0
@@ -23,13 +23,16 @@ AUTO_ENTITY = "automation.erv_control"
 ENABLED = "input_boolean.hvac_lab_enabled"
 
 
-def load_app_class():
-    fake_appdaemon.install()
-    if APPS not in sys.path:
-        sys.path.insert(0, APPS)
-    for m in [m for m in sys.modules if m == "hvac_lab" or m.startswith("hvac_lab.")]:
-        del sys.modules[m]
-    return importlib.import_module("hvac_lab.app").HvacLab
+LOGGER = logging.getLogger("sim.hvac")
+
+
+def make_app(world, client, out_dir: str, sc: Scenario) -> HvacApp:
+    """What AppManager does at startup, with the virtual clock and the fake client swapped in."""
+    options = {"hvac": {"dry_run": sc.dry_run, "lockout_auto_reset": sc.lockout_auto_reset}}
+    app = HvacApp(LOGGER, options, {"name": "hvac", "enabled": True}, client=client,
+                  clock=lambda: world.now, state_dir=out_dir)
+    app.load()
+    return app
 
 
 @dataclass
@@ -68,20 +71,17 @@ def warm_up(house: House, weather: Weather, start: datetime, days: int = 3) -> N
 
 def simulate(sc: Scenario, out_dir: str, with_restarts: bool = True) -> Result:
     os.makedirs(out_dir, exist_ok=True)
-    mem_path = os.path.join(out_dir, "mem.json")
-    log_path = os.path.join(out_dir, "app_log.jsonl")
-    for p in (mem_path, log_path):
-        if os.path.exists(p):
+    for name in ("mem.json", "journal.jsonl"):
+        if os.path.exists(p := os.path.join(out_dir, name)):
             os.remove(p)
-    App = load_app_class()
     weather = Weather(sc.temp_offset)
     house = House(p=sc.params)
     house.dhw = sc.dhw_draws()
     warm_up(house, weather, sc.start)
     if sc.faults.lockout:
         house.lockout = Lockout(*sc.faults.lockout)
-    world = fake_appdaemon.World(now=sc.start, house=house, unavailable=sc.unavailable_windows(),
-                                 poll_phase=sc.poll_phases())
+    world = fake_ha.World(now=sc.start, house=house, unavailable=sc.unavailable_windows(),
+                          poll_phase=sc.poll_phases())
     co2 = 600.0
     world.set(ENABLED, "on")
     world.set(AUTO_ENTITY, "on")
@@ -97,12 +97,15 @@ def simulate(sc: Scenario, out_dir: str, with_restarts: bool = True) -> Result:
         world.set("binary_sensor.hvac_boiler_firing", "on" if house.burner else "off")
         world.set("sensor.dining_room_carbon_dioxide", round(co2))
 
-    args = {"mem_path": mem_path, "log_path": log_path, "lockout_auto_reset": sc.lockout_auto_reset,
-            "dry_run": sc.dry_run}
     sensors(sc.start)
     world.poll_thermostats(force=True)
-    app = App(world, "hvac_lab", args)
-    app.initialize()
+    client = fake_ha.FakeHa(world)
+    capture = fake_ha.LogCapture(world)
+    LOGGER.addHandler(capture)
+    LOGGER.setLevel(logging.DEBUG)
+    LOGGER.propagate = False
+    loop = asyncio.new_event_loop()
+    app = make_app(world, client, out_dir, sc)
 
     kills = dict(sc.faults.kill)
     overrides = {t: (z, sp) for t, z, sp in sc.faults.overrides}
@@ -136,20 +139,20 @@ def simulate(sc: Scenario, out_dir: str, with_restarts: bool = True) -> Result:
                 world.set(ERV_ENTITY, mode)
         sensors(t)
         world.poll_thermostats()
-        world.run_due()
+        loop.run_until_complete(app.tick())
         if t in restarts:
             n_before = len(world.commands)
-            world.cancel_owner(app)
-            app = App(world, "hvac_lab", args)
-            app.initialize()
-            world.run_due()
+            app = make_app(world, client, out_dir, sc)
+            loop.run_until_complete(app.tick())
             restart_ticks.append((t, len(world.commands) - n_before))
         rows.append(_row(t, world, house, to, wind, ghi, co2))
         t += timedelta(minutes=1)
 
+    loop.close()
+    LOGGER.removeHandler(capture)
     journal = []
-    if os.path.exists(log_path):
-        with open(log_path) as f:
+    if os.path.exists(app.log_path):
+        with open(app.log_path) as f:
             journal = [json.loads(line) for line in f]
     return Result(sc, rows, world.commands, journal, world.logs, restart_ticks, world.states, world.unavailable)
 

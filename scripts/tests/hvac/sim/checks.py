@@ -7,10 +7,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 
-from hvac_lab.core.guards import hp_job_to_radiant, peak_active
-from hvac_lab.core.plan import COLD_HOLD, Plan, baseline, in_comfort, night_of
-from hvac_lab.core.policy import kill_restore
-from hvac_lab.core.types import HEATED, Config
+from src.hvac.core.guards import hp_job_to_radiant, peak_active
+from src.hvac.core.plan import COLD_HOLD, Plan, baseline, in_comfort, night_of
+from src.hvac.core.policy import kill_restore
+from src.hvac.core.types import HEATED, Config
 
 from .house import THERMOSTATS
 
