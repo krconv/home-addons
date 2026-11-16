@@ -6,6 +6,7 @@ import json
 import os
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Protocol
 
 SUPERVISOR_CORE_API = "http://supervisor/core/api"
@@ -18,12 +19,17 @@ class HaClient(Protocol):
 
 
 class RestClient:
-    """Blocking urllib calls run in the default executor; a few requests a minute need nothing more."""
+    """Blocking urllib calls run on a small pool of our own, so they never share or starve the
+    event loop's default executor."""
 
     def __init__(self, token: str, base_url: str = SUPERVISOR_CORE_API, timeout: float = 10.0):
         self._token = token
         self._base = base_url.rstrip("/")
         self._timeout = timeout
+        self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="hvac-http")
+
+    async def _call(self, *args):
+        return await asyncio.get_running_loop().run_in_executor(self._pool, self._request, *args)
 
     @classmethod
     def from_env(cls) -> "RestClient":
@@ -35,7 +41,7 @@ class RestClient:
     async def get_state(self, entity_id: str) -> Optional[dict]:
         """The full state object, or None when the entity does not exist. Transport errors raise."""
         try:
-            return await asyncio.to_thread(self._request, "GET", f"/states/{entity_id}")
+            return await self._call("GET", f"/states/{entity_id}")
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return None
@@ -43,11 +49,10 @@ class RestClient:
 
     async def call_service(self, service: str, data: dict) -> None:
         domain, name = service.split("/", 1)
-        await asyncio.to_thread(self._request, "POST", f"/services/{domain}/{name}", data)
+        await self._call("POST", f"/services/{domain}/{name}", data)
 
     async def set_state(self, entity_id: str, state: str, attributes: dict) -> None:
-        await asyncio.to_thread(self._request, "POST", f"/states/{entity_id}",
-                                {"state": state, "attributes": attributes})
+        await self._call("POST", f"/states/{entity_id}", {"state": state, "attributes": attributes})
 
     def _request(self, method: str, path: str, body: Optional[dict] = None):
         data = None if body is None else json.dumps(body, default=str).encode()

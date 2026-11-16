@@ -45,6 +45,31 @@ def test_tick_errors_are_logged_and_the_loop_keeps_going(tmp_path, monkeypatch, 
     assert "hvac tick failed" in caplog.text
 
 
+class HangingClient(FailingClient):
+    async def get_state(self, entity_id):
+        self.reads += 1
+        await asyncio.sleep(3600)
+
+
+def test_a_hung_tick_times_out_and_the_loop_keeps_going(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(hvac_app, "TICK_S", 0.01)
+    monkeypatch.setattr(hvac_app, "TICK_TIMEOUT_S", 0.02)
+    client = HangingClient()
+    app = HvacApp(logging.getLogger("t.hvac"), {}, {}, client=client,
+                  clock=lambda: datetime(2026, 11, 16, 12, 0), state_dir=str(tmp_path))
+
+    async def run():
+        await app.initialize()
+        await asyncio.sleep(0.2)
+        assert not app._task.done()
+        app._task.cancel()
+
+    with caplog.at_level(logging.WARNING):
+        asyncio.run(run())
+    assert client.reads > 13
+    assert "timed out after 0.02s in step observe" in caplog.text
+
+
 def test_dry_run_is_the_default():
     app = HvacApp(logging.getLogger("t.hvac"), {}, {}, client=FailingClient(), state_dir="/tmp/unused")
     assert app.dry_run and app.cfg.dry_run
