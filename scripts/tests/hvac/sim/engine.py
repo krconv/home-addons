@@ -71,7 +71,7 @@ def warm_up(house: House, weather: Weather, start: datetime, days: int = 3) -> N
 
 def simulate(sc: Scenario, out_dir: str, with_restarts: bool = True) -> Result:
     os.makedirs(out_dir, exist_ok=True)
-    for name in ("mem.json", "journal.jsonl"):
+    for name in ("mem-dry.json", "mem-live.json", "journal.jsonl"):
         if os.path.exists(p := os.path.join(out_dir, name)):
             os.remove(p)
     weather = Weather(sc.temp_offset)

@@ -209,24 +209,29 @@ def _entity(data):
 
 def check_idempotent(c: Ctx, twin=None) -> Check:
     problems = []
-    per_hour = Counter((_entity(d), t.replace(minute=0)) for t, s, d in c.cmds)
+    # A mode call and a setpoint call to one thermostat in the same tick are one command.
+    cmd_times = sorted({(t, _entity(d)) for t, s, d in c.cmds})
+    per_hour = Counter((e, t.replace(minute=0)) for t, e in cmd_times)
     worst = max(per_hour.values(), default=0)
     if worst > 4:
         (e, h), n = per_hour.most_common(1)[0]
         problems.append(f"{n} commands to {e} in hour {_f(h)}")
     by_ent = defaultdict(list)
-    for t, s, d in c.cmds:
-        by_ent[_entity(d)].append((t, s, d))
-    for t, s, d in c.cmds:
-        rolling = sum(1 for x, _, _ in by_ent[_entity(d)] if t - timedelta(minutes=60) < x <= t)
+    for t, e in cmd_times:
+        by_ent[e].append(t)
+    for t, e in cmd_times:
+        rolling = sum(1 for x in by_ent[e] if t - timedelta(minutes=60) < x <= t)
         if rolling > 4:
-            problems.append(f"{rolling} commands to {_entity(d)} in the 60 min to {_f(t)}")
+            problems.append(f"{rolling} commands to {e} in the 60 min to {_f(t)}")
             break
-    last = {}
+    grouped = defaultdict(list)
     for t, s, d in c.cmds:
-        k = (s, tuple(sorted(d.items())))
+        grouped[(t, _entity(d))].append((s, tuple(sorted(d.items()))))
+    last = {}
+    for (t, e), calls in sorted(grouped.items()):
+        k = (e, tuple(calls))
         if k in last and t - last[k] < GRACE:
-            problems.append(f"re-sent {s} {d} at {_f(t)} within 7 min")
+            problems.append(f"re-sent {calls} at {_f(t)} within 7 min")
             break
         last[k] = t
     restart_ev = ""
@@ -541,8 +546,11 @@ def check_dry_run(res, plan: Plan, cfg: Config = Config()) -> Check:
     dry_logs = [m for _, _, m in res.logs if m.startswith("DRY ")]
     if not jcmds:
         problems.append("journal has no commands")
-    if len(jcmds) != len(dry_logs):
-        problems.append(f"{len(jcmds)} journal commands vs {len(dry_logs)} DRY log lines")
+    # A zone command is a mode call plus a setpoint call, unless it turns the zone off.
+    expected_lines = sum(2 if e["key"].startswith("zone:") and (e.get("value") or {}).get("mode") != "off" else 1
+                         for e in jcmds)
+    if expected_lines != len(dry_logs):
+        problems.append(f"{len(jcmds)} journal commands need {expected_lines} DRY log lines, saw {len(dry_logs)}")
     if any(e.get("dry_run") is not True for e in jcmds):
         problems.append("journal command without dry_run flag")
     intended, k, checked = {}, 0, 0
