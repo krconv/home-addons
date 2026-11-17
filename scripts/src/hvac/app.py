@@ -182,31 +182,35 @@ class HvacApp:
         )
 
     async def send(self, c: Command) -> None:
-        call = self.service_call(c)
-        self.logger.info(f"{'DRY ' if self.dry_run else ''}{call[0]} {call[1]}")
-        if self.dry_run:
-            return
-        try:
-            await self.client.call_service(call[0], call[1])
-        except Exception as e:  # the reconciler resends once the confirmation window lapses
-            self.logger.warning(f"service call failed: {call}: {e!r}")
+        for call in self.service_calls(c):
+            self.logger.info(f"{'DRY ' if self.dry_run else ''}{call[0]} {call[1]}")
+            if self.dry_run:
+                continue
+            try:
+                await self.client.call_service(call[0], call[1])
+            except Exception as e:  # the reconciler resends once the confirmation window lapses
+                self.logger.warning(f"service call failed: {call}: {e!r}")
+                return
 
-    def service_call(self, c: Command) -> tuple[str, dict]:
+    def service_calls(self, c: Command) -> list[tuple[str, dict]]:
         if c.key.startswith("zone:"):
             entity = self.ent["zones"][c.key[5:]]
             v: ZoneCommand = c.value  # type: ignore[assignment]
-            if v.mode == "off":
-                return "climate/set_hvac_mode", {"entity_id": entity, "hvac_mode": "off"}
+            # The thermostats reject a mode inside set_temperature, so the mode is its own call first.
+            # HA state lags the device by up to a poll, so the mode is always sent, not diffed.
+            calls = [("climate/set_hvac_mode", {"entity_id": entity, "hvac_mode": v.mode})]
             if v.mode == "heat_cool":
-                return "climate/set_temperature", {"entity_id": entity, "hvac_mode": "heat_cool",
-                                                   "target_temp_low": v.low, "target_temp_high": v.high}
-            return "climate/set_temperature", {"entity_id": entity, "hvac_mode": v.mode, "temperature": v.setpoint}
+                calls.append(("climate/set_temperature", {"entity_id": entity,
+                                                          "target_temp_low": v.low, "target_temp_high": v.high}))
+            elif v.mode != "off":
+                calls.append(("climate/set_temperature", {"entity_id": entity, "temperature": v.setpoint}))
+            return calls
         if c.key == FAN_KEY:
-            return "climate/set_fan_mode", {"entity_id": self.ent["zones"]["EAST"], "fan_mode": c.value}
+            return [("climate/set_fan_mode", {"entity_id": self.ent["zones"]["EAST"], "fan_mode": c.value})]
         if c.key == ERV_KEY:
-            return "select/select_option", {"entity_id": self.ent["erv"], "option": c.value}
+            return [("select/select_option", {"entity_id": self.ent["erv"], "option": c.value})]
         if c.key == AUTO_KEY:
-            return ("automation/turn_on" if c.value else "automation/turn_off"), {"entity_id": self.ent["erv_automation"]}
+            return [(("automation/turn_on" if c.value else "automation/turn_off"), {"entity_id": self.ent["erv_automation"]})]
         raise ValueError(c.key)
 
     def _load(self) -> Mem:

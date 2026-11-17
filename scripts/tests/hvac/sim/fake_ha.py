@@ -87,7 +87,8 @@ class World:
             h.set_mode(zone, data["hvac_mode"], self.now)
         elif service == "climate/set_temperature":
             if "hvac_mode" in data:
-                h.set_mode(zone, data["hvac_mode"], self.now)
+                # The Amazon thermostats reject this with HTTP 400 (seen live 2026-11-16).
+                raise ServiceError("Set the HVAC mode and the target temperature in separate actions")
             t = h.tstats[zone]
             for k in ("temperature", "target_temp_low", "target_temp_high"):
                 if k in data and data[k] is not None and float(data[k]) != int(data[k]):
