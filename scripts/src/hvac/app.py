@@ -79,7 +79,9 @@ class HvacApp:
         self.client = client if client is not None else RestClient.from_env()
         self.clock = clock
         self.state_dir = state_dir
-        self.mem_path = os.path.join(state_dir, "mem.json")
+        # Dry-run memory holds intents that never reached a device; loading it live would read every
+        # zone that differs from those intents as a manual override.
+        self.mem_path = os.path.join(state_dir, "mem-dry.json" if self.dry_run else "mem-live.json")
         self.log_path = os.path.join(state_dir, "journal.jsonl")
         self.mem = Mem()
         self._task: Optional[asyncio.Task] = None

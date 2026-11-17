@@ -35,7 +35,7 @@ Runs the week of HVAC experiments from the lab plan. Every 60 seconds it reads t
 - Talks to Home Assistant through the Supervisor's core API proxy (`homeassistant_api: true`), so it needs no token or URL in the options.
 - Writes its status to `sensor.hvac_lab_status`. The state is `<test_id>/<phase>`, `baseline/day`, `baseline/night` or `disabled`; the attributes carry the night grade, voids, lockout state and the last events.
 - `input_boolean.hvac_lab_enabled` is the kill switch. Turning it off restores the baseline once, turns `automation.erv_control` back on, then leaves everything alone until it is turned on again. The app does not create the helper; create it in Home Assistant first. A missing or unavailable helper reads as off.
-- Keeps its memory in `/data/hvac/mem.json` and appends every command and event to `/data/hvac/journal.jsonl`, so a restart picks up where it left off.
+- Keeps its memory in `/data/hvac/mem-live.json` (`mem-dry.json` in dry run, so switching modes starts clean) and appends every command and event to `/data/hvac/journal.jsonl`, so a restart picks up where it left off.
 - Runs beside the lights app and never affects it. A failure while starting is logged and the add-on carries on without hvac. A failed tick is logged and retried on the next tick. The health endpoint the watchdog polls ignores hvac, so an hvac problem never restarts the add-on. Run it with lights (or another app) enabled; on its own the add-on has no app the health check counts.
 
 Enable it by adding it to `apps`. Options live in the separate `hvac` block:
