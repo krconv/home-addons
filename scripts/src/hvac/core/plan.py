@@ -145,9 +145,9 @@ WEEK = (
          goal="drop East below 68 so hp_recovery has a step",
          note="new: with the hold at 68 there is nothing to recover from"),
     _seg(D(2026, 11, 18, 3, 30), D(2026, 11, 18, 5, 30), "hp_recovery", "recovery",
-         P(east=heat(68), radiant=64, BASEMENT=heat(68)), goal="heat pump lag", isolates=("hp_lag",),
-         note="basement radiant 68 (no heat pump air reaches it, so the East/West/First step stays "
-              "heat-pump-only)"),
+         P(east=heat(68), radiant=64), goal="heat pump lag", isolates=("hp_lag",),
+         note="basement radiant stays at 64: slab heat rises into the first floor and would mix into the "
+              "heat pump's step; the slab keeps the basement near 67-68 for 2 h"),
     _seg(D(2026, 11, 18, 5, 30), D(2026, 11, 18, 21, 0), "radiant_lead_day", "lead",
          P(east=heat(66), radiant=68), goal="radiant daytime share", note="radiant 68 as designed (69 removed)"),
     _seg(D(2026, 11, 18, 21, 0), D(2026, 11, 19, 5, 30), "radiant_hold", "hold",
