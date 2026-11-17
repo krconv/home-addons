@@ -127,3 +127,10 @@ def test_rest_client_against_the_core_api_shape(core_api):
         ("/api/services/climate/set_temperature", {"entity_id": "climate.basement", "temperature": 64}),
         ("/api/states/sensor.hvac_lab_status", {"state": "baseline/day", "attributes": {"night": "2026-11-16"}}),
     ]
+
+
+def test_dry_and_live_keep_separate_memory(tmp_path):
+    def app(dry):
+        return HvacApp(logging.getLogger("t.hvac"), {"hvac": {"dry_run": dry}}, {}, client=FailingClient(),
+                       clock=lambda: datetime(2026, 11, 16, 12, 0), state_dir=str(tmp_path))
+    assert app(True).mem_path != app(False).mem_path
