@@ -115,7 +115,9 @@ def _seg(start, end, test_id, phase, patch, flags=(), goal="", isolates=(), note
 
 
 COAST = P(east=heat(64), radiant=64)
-COAST_FAN_AUTO = P(east=heat(64), radiant=64, fan="auto")
+# The ERV energises the air handler fan whenever it runs (hard-wired), so a fan-off test owns the
+# ERV and turns it off; Thursday's ERV night separates the ventilation share back out.
+COAST_FAN_AUTO = P(east=heat(64), radiant=64, fan="auto", erv="Off")
 RADIANT_RECOVERY = P(east=OFF, radiant=68)
 # Holds run at 68 so the source under test actually runs (at 66 a 68 day left it idle for hours).
 HP_HOLD = P(east=heat(68), radiant=64)
@@ -175,9 +177,11 @@ WEEK = (
          RADIANT_RECOVERY, goal="radiant lag repeat", isolates=("radiant_lag",),
          note="starts 03:00 (was 03:30), as radiant_recovery: it follows a coast"),
     _seg(D(2026, 11, 21, 12, 0), D(2026, 11, 21, 17, 0), "fan_auto_sunny", "fan_auto",
-         P(fan="auto"), goal="fan mixing of solar gain"),
+         P(fan="auto", erv="Off"), flags=("owns_erv",), goal="fan mixing of solar gain",
+         note="ERV off: it runs the air handler fan whenever it is on"),
     _seg(D(2026, 11, 21, 21, 0), D(2026, 11, 22, 3, 0), "coast_3", "coast", COAST_FAN_AUTO,
-         goal="tau repeat, fan auto (1 of 2)", isolates=("tau",), note="fan auto all night; ends 03:00 (was 03:30)"),
+         flags=("owns_erv",), goal="tau repeat, fan auto (1 of 2)", isolates=("tau",),
+         note="fan auto and ERV off all night; ends 03:00 (was 03:30)"),
     _seg(D(2026, 11, 22, 3, 0), D(2026, 11, 22, 5, 30), "combined_recovery", "recovery",
          P(east=heat(68), radiant=68), goal="fastest recovery", isolates=("combined_lag",),
          note="starts 03:00 (was 03:30) after a coast"),
@@ -185,7 +189,8 @@ WEEK = (
          P(east=heat(70), WEST=heat(64), FIRST=heat(64)), goal="heat pump band riding", reactive="band_ride",
          note="West/First radiant at 64 (was 66) so the heat pump does the riding; basement stays at baseline"),
     _seg(D(2026, 11, 22, 21, 0), D(2026, 11, 23, 3, 0), "coast_4", "coast", COAST_FAN_AUTO,
-         goal="tau repeat, fan auto (2 of 2)", isolates=("tau",), note="new: second fan-auto night (Sun 22)"),
+         flags=("owns_erv",), goal="tau repeat, fan auto (2 of 2)", isolates=("tau",),
+         note="new: second fan-auto night (Sun 22), ERV off"),
     _seg(D(2026, 11, 23, 3, 0), D(2026, 11, 23, 5, 30), "radiant_recovery_4", "recovery",
          RADIANT_RECOVERY, goal="radiant lag repeat", isolates=("radiant_lag",),
          note="new: replaces radiant_recovery_2, which the 68 radiant hold removed"),
