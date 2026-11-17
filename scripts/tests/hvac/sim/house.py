@@ -211,7 +211,9 @@ class House:
                 self.comp_off_at = now
         if self.forced_compressor is not None:
             self.compressor = self.forced_compressor
-        self.fan_running = self.compressor or (east.mode != "off" and east.fan_mode == "on")
+        # The ERV energises the air handler fan whenever it runs (hard-wired interlock).
+        self.fan_running = (self.compressor or self.erv_mode != "Off"
+                            or (east.mode != "off" and east.fan_mode == "on"))
         self.hp_kw = 2.9 if self.compressor else (0.224 if self.fan_running else 0.0)
 
         valves = {f: self.tstats[tz].calling for tz, floors in VALVES.items() for f in floors}
