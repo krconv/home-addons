@@ -87,7 +87,9 @@ def _observed(key: str, obs: Observation) -> tuple[bool, object]:
         if o is None or not o.available:
             return False, None
         if key == FAN_KEY:
-            return True, o.fan
+            # The thermostat drops fan_mode when its integration stops reporting fan support (seen
+            # after an HA restart on 2026-11-18); that is missing data, not someone changing the fan.
+            return o.fan is not None, o.fan
         c = o.as_command()
         return True, c.to_json() if c else {"mode": o.mode}
     if key == ERV_KEY:
