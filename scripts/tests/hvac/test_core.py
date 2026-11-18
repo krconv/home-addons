@@ -237,3 +237,14 @@ def test_floor_at_risk_when_the_heat_pump_is_locked_out():
     later = now + timedelta(minutes=1)
     _, mem, ev = decide(later, PLAN, obs(later, WEST=zobs(sp=69, temp=64.0, action="heating")), m, CFG)
     assert [e.kind for e in ev if e.kind.startswith("floor")] == ["floor_at_risk"]
+
+
+def test_missing_fan_mode_is_not_an_override():
+    now = datetime(2026, 11, 17, 22, 0)
+    base = {z: zobs(sp=68 if z == "EAST" else 64) for z in ("EAST", "WEST", "FIRST", "BASEMENT")}
+    _, mem, _ = decide(now, PLAN, obs(now, **base), Mem(), CFG)
+    later = now + timedelta(minutes=10)
+    base["EAST"] = zobs(sp=68, fan=None)
+    cmds, mem, ev = decide(later, PLAN, obs(later, **base), mem, CFG)
+    assert not [e for e in ev if e.kind == "override"]
+    assert not [c for c in cmds if c.key == "east_fan"]
