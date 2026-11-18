@@ -24,6 +24,7 @@ class Mem:
     co2_forced: bool = False
     grades: dict = field(default_factory=dict)       # night id -> {"void": bool, "reasons": [str]}
     coast_abort: dict = field(default_factory=dict)  # coast segment key -> ran a hold instead (bool)
+    holds: dict = field(default_factory=dict)        # hold group -> East setpoint latched at its start
     killed: bool = False
     deferred_restore: list = field(default_factory=list)
     events: list = field(default_factory=list)       # last N events (json)

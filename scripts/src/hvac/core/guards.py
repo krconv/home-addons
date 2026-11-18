@@ -166,6 +166,21 @@ def band_ride_step(state: dict, obs: Observation, d: Desired) -> tuple[dict, Des
     return {"state": st}, d.with_zones(EAST=heat(70 if st == "UP" else 68))
 
 
+HOLD_MIN_SP, HOLD_MAX_SP = 68, 71
+
+
+def hold_at_start_step(holds: dict, group: str, obs: Observation, d: Desired) -> tuple[dict, Desired]:
+    """East holds whatever it read when the group's first segment started, so the heat pump runs from
+    the start instead of waiting for the house to drift down to a fixed setpoint."""
+    holds = dict(holds)
+    if group not in holds:
+        e = obs.zones.get("EAST")
+        if e is None or not e.available or e.temp is None:
+            return holds, d
+        holds[group] = min(HOLD_MAX_SP, max(HOLD_MIN_SP, round(e.temp)))
+    return holds, d.with_zones(EAST=heat(holds[group]))
+
+
 CO2_OFF_MIN = 60
 CO2_MEDIUM_MIN = 60
 CO2_AWAY_MIN = 30
