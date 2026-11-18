@@ -41,6 +41,8 @@ def target(now: datetime, plan: Plan, obs: Observation, mem: Mem, cfg: Config) -
         d = patch(d)
     if seg is not None and seg.reactive == "band_ride":
         mem.band, d = guards.band_ride_step(mem.band, obs, d)
+    if seg is not None and seg.reactive and seg.reactive.startswith("hold_at_start:"):
+        mem.holds, d = guards.hold_at_start_step(mem.holds, seg.reactive.split(":", 1)[1], obs, d)
 
     overlay = plan.overlay_at(now)
     mem.co2_decay, ev = guards.co2_decay_step(mem.co2_decay, now, obs, overlay, cfg)

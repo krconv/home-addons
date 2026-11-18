@@ -180,7 +180,7 @@ def check_on_time(c: Ctx) -> Check:
             cmd = d.zones[z]
             if (c.unavailable(z, s.start, t) or z in guarded or (fb and z in ("EAST", "WEST", "FIRST"))
                     or any(e["zone"] == z and x <= t for x, e in overrides if x >= s.start - timedelta(hours=12))
-                    or (z == "EAST" and s.reactive == "band_ride")):
+                    or (z == "EAST" and s.reactive is not None and (s.reactive == "band_ride" or s.reactive.startswith("hold_at_start:")))):
                 exempt += 1
                 continue
             checked += 1
@@ -569,7 +569,7 @@ def check_dry_run(res, plan: Plan, cfg: Config = Config()) -> Check:
                 if peak_active(t, cfg):
                     d = hp_job_to_radiant(d, cfg.peak_radiant_margin if in_comfort(t) else 0)
             for z in HEATED:
-                if z == "EAST" and s is not None and s.reactive == "band_ride":
+                if z == "EAST" and s is not None and s.reactive is not None and (s.reactive == "band_ride" or s.reactive.startswith("hold_at_start:")):
                     continue
                 want = d.zones[z].to_json()
                 got = intended.get(f"zone:{z}")

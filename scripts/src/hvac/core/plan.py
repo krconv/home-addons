@@ -158,10 +158,12 @@ WEEK = (
          note="identical to the new baseline; kept as a labelled day"),
     _seg(D(2026, 11, 19, 21, 0), D(2026, 11, 20, 0, 15), "erv_off", "erv_off",
          P(east=heat(ERV_HOLD_SP), radiant=64, erv="Off"), flags=("owns_erv",), goal="ventilation share",
-         isolates=("erv",), note=f"East {ERV_HOLD_SP} (was 66); ends 00:15 (was 00:45) so both halves are 3.25 h"),
+         isolates=("erv",), reactive="hold_at_start:erv",
+         note="East holds its own 21:00 reading (68-71) so the heat pump runs; both halves share it"),
     _seg(D(2026, 11, 20, 0, 15), D(2026, 11, 20, 3, 30), "erv_max", "erv_max",
          P(east=heat(ERV_HOLD_SP), radiant=64, erv="Maximum"), flags=("owns_erv",), goal="ventilation share",
-         isolates=("erv",), note=f"East {ERV_HOLD_SP} (was 66); 03:30 end (was 04:30) to leave time to recover"),
+         isolates=("erv",), reactive="hold_at_start:erv",
+         note="same East hold as erv_off; 03:30 end leaves time to recover"),
     _seg(D(2026, 11, 20, 12, 0), D(2026, 11, 20, 15, 0), "prepeak_charge", "charge",
          P(east=heat(70), radiant=68), goal="pre-charge before peak", note="radiant 68 as designed (69 removed)"),
     _seg(D(2026, 11, 20, 15, 0), D(2026, 11, 20, 19, 0), "prepeak_coast", "coast", COAST,
@@ -194,6 +196,13 @@ WEEK = (
     _seg(D(2026, 11, 23, 0, 0), D(2026, 11, 23, 5, 30), "radiant_recovery_4", "recovery",
          RADIANT_RECOVERY, goal="full radiant recovery curve", isolates=("radiant_lag",),
          note="starts 00:00: on 11-17 radiant from 03:00 had not changed upstairs cooling by 04:45"),
+    _seg(D(2026, 11, 23, 21, 0), D(2026, 11, 24, 2, 0), "hp_hold_2", "hold", HP_HOLD, goal="UA",
+         isolates=("UA",), reactive="hold_at_start:hp_hold_2",
+         note="rerun: on 11-17 East started at 69-70 against a 68 hold and the heat pump never ran"),
+    _seg(D(2026, 11, 24, 2, 0), D(2026, 11, 24, 3, 30), "hp_setback_2", "setback", COAST,
+         goal="drop East so hp_recovery_2 has a step"),
+    _seg(D(2026, 11, 24, 3, 30), D(2026, 11, 24, 5, 30), "hp_recovery_2", "recovery",
+         P(east=heat(68), radiant=64), goal="heat pump lag", isolates=("hp_lag",)),
 )
 
 CO2_DECAY_WINDOWS = tuple(

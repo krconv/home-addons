@@ -39,7 +39,7 @@ def matching(now, plan=PLAN, mem=None, **kw):
 
 
 def test_plan_validates_and_rejects_bad_rows():
-    assert len(PLAN.segments) == 22
+    assert len(PLAN.segments) == 25
     s = PLAN.segments[0]
     with pytest.raises(ValueError):
         Plan(segments=(s, s))
@@ -248,3 +248,16 @@ def test_missing_fan_mode_is_not_an_override():
     cmds, mem, ev = decide(later, PLAN, obs(later, **base), mem, CFG)
     assert not [e for e in ev if e.kind == "override"]
     assert not [c for c in cmds if c.key == "east_fan"]
+
+
+def test_erv_halves_hold_east_at_its_starting_reading():
+    start = datetime(2026, 11, 19, 21, 0)
+    zones = {z: zobs(sp=68 if z == "EAST" else 64, temp=70.4 if z == "EAST" else 67.0)
+             for z in ("EAST", "WEST", "FIRST", "BASEMENT")}
+    cmds, mem, _ = decide(start, PLAN, obs(start, **zones), Mem(), CFG)
+    assert {c.key: c.value for c in cmds}["zone:EAST"] == heat(70)
+    assert mem.holds == {"erv": 70}
+    later = datetime(2026, 11, 20, 1, 0)  # erv_max half: same hold even though East has cooled
+    zones["EAST"] = zobs(sp=70, temp=68.0)
+    _, mem, _ = decide(later, PLAN, obs(later, **zones), mem, CFG)
+    assert mem.holds == {"erv": 70}
