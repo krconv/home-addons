@@ -202,6 +202,20 @@ class ZigBeeClient:
         """Get a ZigBee device by its IEEE address."""
         return self._devices_by_ieee[ieee]
 
+    def missing_ieees(self, ieees: list[str]) -> list[str]:
+        """The IEEE addresses not on any bridge (left the network or removed from Zigbee2MQTT)."""
+        return [ieee for ieee in ieees if ieee not in self._devices_by_ieee]
+
+    async def wait_for_devices(self, ieees: list[str], timeout: int = 120) -> list[str]:
+        """Wait for devices to (re)join a bridge; returns the ones still missing.
+
+        The bridge/devices subscription stays live, so a rejoined device lands in the registry on its own.
+        """
+        end = datetime.datetime.now() + datetime.timedelta(seconds=timeout)
+        while (missing := self.missing_ieees(ieees)) and datetime.datetime.now() < end:
+            await asyncio.sleep(5)
+        return missing
+
     def get_devices_by_ieee(self, ieees: list[str]) -> list[ZigBeeDevice]:
         """Get the known ZigBee devices among these IEEE addresses; missing ones are logged and skipped."""
         missing = [ieee for ieee in ieees if ieee not in self._devices_by_ieee]
