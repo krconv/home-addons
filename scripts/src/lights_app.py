@@ -129,9 +129,15 @@ class LightsApp:
         for circuit in self._config.circuits:
             if not self._is_sync_eligible(circuit):
                 continue
-            switch = self._zigbee.get_device_by_ieee(
-                next(s.ieee for s in circuit.switches if s.type == "hardwired")
-            )
+            switch_ieee = next(s.ieee for s in circuit.switches if s.type == "hardwired")
+            found = self._zigbee.get_devices_by_ieee([switch_ieee])
+            if not found:
+                self.logger.warning(
+                    f"Circuit {circuit.friendly_name}: hardwired switch {switch_ieee} not found; "
+                    "skipping switch state sync"
+                )
+                continue
+            switch = found[0]
             self._hardwired_switch_by_circuit[circuit.id] = switch.ieee_address
             if (state := switch.state.properties.get("state")) is not None:
                 self._switch_states[circuit.id] = state
