@@ -203,8 +203,11 @@ class ZigBeeClient:
         return self._devices_by_ieee[ieee]
 
     def get_devices_by_ieee(self, ieees: list[str]) -> list[ZigBeeDevice]:
-        """Get a list of ZigBee devices by their IEEE addresses."""
-        return [self._devices_by_ieee[ieee] for ieee in ieees]
+        """Get the known ZigBee devices among these IEEE addresses; missing ones are logged and skipped."""
+        missing = [ieee for ieee in ieees if ieee not in self._devices_by_ieee]
+        if missing:
+            self.logger.warning(f"Devices not on any bridge, skipping: {missing}")
+        return [self._devices_by_ieee[ieee] for ieee in ieees if ieee in self._devices_by_ieee]
 
     def get_device_by_friendly_name(self, friendly_name: str) -> ZigBeeDevice | None:
         """Get a ZigBee device by its friendly name."""
