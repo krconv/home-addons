@@ -206,9 +206,11 @@ WEEK = (
 )
 
 CO2_DECAY_WINDOWS = tuple(
-    _seg(D(2026, 11, d, 9, 0), D(2026, 11, d, 16, 0), "co2_decay", "co2_decay", DesiredPatch(),
+    _seg(start, end, "co2_decay", "co2_decay", DesiredPatch(),
          goal="ventilation rate from CO2 decay", isolates=("ach",), reactive="co2_decay")
-    for d in (16, 17, 18, 19, 20)
+    for start, end in [(D(2026, 11, d, 9, 0), D(2026, 11, d, 16, 0)) for d in (16, 17, 18, 19, 20)]
+    # Sat 11-21: Kodey and Maddy out ~07:30 for 3-4 h; ends at fan_auto_sunny, which owns the ERV.
+    + [(D(2026, 11, 21, 7, 0), D(2026, 11, 21, 12, 0))]
 )
 
 

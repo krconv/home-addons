@@ -188,20 +188,24 @@ CO2_AWAY_MIN = 30
 
 def co2_decay_step(state: dict, now: datetime, obs: Observation, overlay: Optional[Segment],
                    cfg: Config) -> tuple[dict, list[Event]]:
-    """IDLE -> OFF (60 min) -> MEDIUM (60 min) -> DONE; ABORTED on CO2 > abort or someone home. Once per week."""
+    """IDLE -> OFF (60 min) -> MEDIUM (60 min) -> DONE; ABORTED on CO2 > abort or someone home.
+    One attempt per overlay window."""
     s = dict(state)
     events: list[Event] = []
     away = both_away(obs)
     s["away_since"] = (s.get("away_since") or _iso(now)) if away else None
     st = s["state"]
     if st in ("DONE", "ABORTED"):
-        return s, events
+        if overlay is None or s.get("window") == overlay.key:
+            return s, events
+        s.update(state="IDLE", since=None, window=None)
+        st = "IDLE"
     if st == "IDLE":
         if overlay is None or obs.co2 is None or not away:
             return s, events
         enough_time = overlay.end - now >= timedelta(minutes=CO2_OFF_MIN + CO2_MEDIUM_MIN)
         if enough_time and now - _t(s["away_since"]) >= timedelta(minutes=CO2_AWAY_MIN):
-            s.update(state="OFF", since=_iso(now))
+            s.update(state="OFF", since=_iso(now), window=overlay.key)
             events.append(Event(now, "co2_decay", {"phase": "OFF", "co2": obs.co2}))
         return s, events
     since = _t(s["since"])

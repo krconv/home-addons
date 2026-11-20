@@ -261,3 +261,17 @@ def test_erv_halves_hold_east_at_its_starting_reading():
     zones["EAST"] = zobs(sp=70, temp=68.0)
     _, mem, _ = decide(later, PLAN, obs(later, **zones), mem, CFG)
     assert mem.holds == {"erv": 70}
+
+
+def test_co2_decay_reruns_in_a_new_window_after_an_abort():
+    from src.hvac.core.guards import co2_decay_step
+    aborted = {"state": "ABORTED", "since": "2026-11-19T13:30:28", "away_since": None}
+    start = datetime(2026, 11, 21, 7, 30)
+    s, _ = co2_decay_step(aborted, start, obs(start, persons=(False, False)), PLAN.overlay_at(start), CFG)
+    assert s["state"] == "IDLE"
+    t = start + timedelta(minutes=31)
+    s, ev = co2_decay_step(s, t, obs(t, persons=(False, False)), PLAN.overlay_at(t), CFG)
+    assert s["state"] == "OFF" and s["window"] == "co2_decay@2026-11-21T07:00"
+    done = dict(s, state="DONE")
+    s, _ = co2_decay_step(done, t + timedelta(hours=2), obs(t, persons=(False, False)), PLAN.overlay_at(t), CFG)
+    assert s["state"] == "DONE"
