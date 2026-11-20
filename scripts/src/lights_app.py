@@ -38,6 +38,9 @@ class LightCircuit(pydantic.BaseModel):
 class LightCircuitHealth(pydantic.BaseModel):
     unresponsive_devices: list[zigbee.ZigBeeDevice]
     ungrouped_devices: list[zigbee.ZigBeeDevice]
+    # Configured devices that are on no bridge at all, so there is no device object to query.
+    missing_lights: list[str] = []
+    missing_switches: list[str] = []
 
     is_healthy: bool
 
@@ -316,11 +319,10 @@ class LightsApp:
         # Bulbs are switched off one by one rather than via the group: the
         # hardwired switch is a group member, and a group OFF would flip its
         # state and read as a paddle press that ends night-light.
-        for light in circuit.lights:
-            if light.ieee != nightlight.light:
-                await self._zigbee.set_property(
-                    self._zigbee.get_device_by_ieee(light.ieee), "state", "OFF"
-                )
+        for device in self._zigbee.get_devices_by_ieee(
+            [light.ieee for light in circuit.lights if light.ieee != nightlight.light]
+        ):
+            await self._zigbee.set_property(device, "state", "OFF")
         # One set so the bulb comes up at the night-light level rather than
         # flashing to its previous level first.
         await self._zigbee.set_properties(
@@ -338,7 +340,9 @@ class LightsApp:
     ) -> None:
         mismatched: list[str] = []
         for light in circuit.lights:
-            device = self._zigbee.get_device_by_ieee(light.ieee)
+            if not (found := self._zigbee.get_devices_by_ieee([light.ieee])):
+                continue
+            device = found[0]
             expected = "ON" if light.ieee == nightlight.light else "OFF"
             actual = device.state.properties.get("state")
             if actual not in (None, expected):
@@ -394,10 +398,9 @@ class LightsApp:
             await self._update_circuit_lighting(circuit, brightness, temperature, 1)
 
     def _get_hardwired_switch_state(self, circuit: LightCircuit) -> str | None:
-        for switch in circuit.switches:
-            if switch.type != "hardwired":
-                continue
-            device = self._zigbee.get_device_by_ieee(switch.ieee)
+        for device in self._zigbee.get_devices_by_ieee(
+            [s.ieee for s in circuit.switches if s.type == "hardwired"]
+        ):
             return device.state.properties.get("state")
         return None
 
@@ -639,8 +642,9 @@ class LightsApp:
             # Non-hardwired switches get them too since they set the switch's
             # own light intensity.
             default_level = max(1, min(254, brightness))
-            for switch in circuit.switches:
-                device = self._zigbee.get_device_by_ieee(switch.ieee)
+            for device in self._zigbee.get_devices_by_ieee(
+                [s.ieee for s in circuit.switches]
+            ):
                 await self._zigbee.set_property(
                     device, "defaultLevelLocal", default_level
                 )
@@ -662,7 +666,26 @@ class LightsApp:
         switches = self._zigbee.get_devices_by_ieee(
             [switch.ieee for switch in circuit.switches]
         )
-        if health.unresponsive_devices:
+        if health.missing_switches:
+            self.logger.error(
+                f"Circuit {circuit.friendly_name}: switches {health.missing_switches} are not on any bridge; "
+                "a switch can't be power-cycled from here, so it needs re-pairing by hand"
+            )
+        if health.missing_lights:
+            if self._is_bedroom(circuit) and self._is_within_quiet_hours(now.time()):
+                self.logger.warning(
+                    f"Circuit {circuit.friendly_name}: lights {health.missing_lights} are not on any bridge; "
+                    "waiting for quiet hours to end before power-cycling to rejoin them"
+                )
+                return False
+            self.logger.warning(
+                f"Circuit {circuit.friendly_name}: lights {health.missing_lights} are not on any bridge; "
+                "power-cycling to rejoin them"
+            )
+            await self._reset_and_reconnect_circuit(
+                circuit, health.unresponsive_devices, health.missing_lights
+            )
+        elif health.unresponsive_devices:
             if any(device in lights for device in health.unresponsive_devices):
                 if self._is_bedroom(circuit) and self._is_within_quiet_hours(
                     now.time()
@@ -699,11 +722,9 @@ class LightsApp:
         switch to recover an unresponsive bulb (which would wake someone), turn off
         smart bulb mode so the switch cuts power to the bulbs directly.
         """
-        hardwired_switches = [
-            self._zigbee.get_device_by_ieee(s.ieee)
-            for s in circuit.switches
-            if s.type == "hardwired"
-        ]
+        hardwired_switches = self._zigbee.get_devices_by_ieee(
+            [s.ieee for s in circuit.switches if s.type == "hardwired"]
+        )
 
         if not hardwired_switches:
             self.logger.error(
@@ -730,13 +751,12 @@ class LightsApp:
         self,
         circuit: LightCircuit,
         unresponsive_devices: list[zigbee.ZigBeeDevice],
+        missing_lights: list[str] = (),
     ):
-        """Attempt to recover an unresponsive device."""
-        hardwired_switches = [
-            self._zigbee.get_device_by_ieee(s.ieee)
-            for s in circuit.switches
-            if s.type == "hardwired"
-        ]
+        """Attempt to recover unresponsive lights, and rejoin lights that left the network."""
+        hardwired_switches = self._zigbee.get_devices_by_ieee(
+            [s.ieee for s in circuit.switches if s.type == "hardwired"]
+        )
 
         if not hardwired_switches:
             self.logger.error(
@@ -779,6 +799,7 @@ class LightsApp:
                 lights  # after a reset, all lights will be unresponsive
             )
 
+            missing = list(missing_lights)
             for attempt in range(3):
                 if not await self._power_cycle_switches(hardwired_switches, 1):
                     continue
@@ -786,11 +807,22 @@ class LightsApp:
                 if not await self._zigbee.permit_join(hardwired_switches[0], 120):
                     continue
 
+                if missing:
+                    missing = await self._zigbee.wait_for_devices(missing, timeout=120)
+                    lights = self._zigbee.get_devices_by_ieee(
+                        [light.ieee for light in circuit.lights]
+                    )
+                    unresponsive_devices = lights
                 unresponsive_devices = await self._zigbee.get_unresponsive_devices(
                     devices_to_check=unresponsive_devices, timeout=120
                 )
-                if not unresponsive_devices:
+                if not unresponsive_devices and not missing:
                     break
+
+            if missing:
+                self.logger.error(
+                    f"Lights {missing} in {circuit.friendly_name} did not rejoin after 3 attempts"
+                )
 
             group = self._zigbee.get_group_by_id(circuit.group_id)
             for device in lights:
@@ -876,8 +908,21 @@ class LightsApp:
             f"{len(ungrouped_devices)} ungrouped devices"
         )
 
+        missing_lights = self._zigbee.missing_ieees([d.ieee for d in circuit.lights])
+        missing_switches = self._zigbee.missing_ieees([d.ieee for d in circuit.switches])
+        if missing_lights or missing_switches:
+            self.logger.warning(
+                f"Health check for circuit {circuit.friendly_name}: not on any bridge: "
+                f"lights {missing_lights}, switches {missing_switches}"
+            )
+
         return LightCircuitHealth(
             unresponsive_devices=unresponsive_devices,
             ungrouped_devices=ungrouped_devices,
-            is_healthy=not unresponsive_devices and not ungrouped_devices,
+            missing_lights=missing_lights,
+            missing_switches=missing_switches,
+            is_healthy=not unresponsive_devices
+            and not ungrouped_devices
+            and not missing_lights
+            and not missing_switches,
         )
