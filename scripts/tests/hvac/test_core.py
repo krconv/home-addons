@@ -275,3 +275,33 @@ def test_co2_decay_reruns_in_a_new_window_after_an_abort():
     done = dict(s, state="DONE")
     s, _ = co2_decay_step(done, t + timedelta(hours=2), obs(t, persons=(False, False)), PLAN.overlay_at(t), CFG)
     assert s["state"] == "DONE"
+
+
+def test_co2_cycle_alternates_two_hour_blocks_until_someone_is_home():
+    from src.hvac.core.guards import co2_decay_step
+    s = {"state": "DONE", "since": "2026-11-21T10:24:33", "away_since": None,
+         "window": "co2_decay@2026-11-21T07:00"}
+    t = datetime(2026, 11, 22, 9, 0)
+    away = lambda t: obs(t, persons=(False, False))
+    s, _ = co2_decay_step(s, t, away(t), PLAN.overlay_at(t), CFG)
+    t += timedelta(minutes=31)
+    s, _ = co2_decay_step(s, t, away(t), PLAN.overlay_at(t), CFG)
+    assert (s["state"], s["block"]) == ("OFF", 1) and s["window"].startswith("co2_cycle@")
+    phases = []
+    for _ in range(6 * 60):
+        t += timedelta(minutes=1)
+        s, ev = co2_decay_step(s, t, away(t), PLAN.overlay_at(t), CFG)
+        phases += [e.detail["phase"] for e in ev]
+    assert phases == ["MEDIUM", "OFF", "MEDIUM"] and s["block"] == 4
+    s, ev = co2_decay_step(s, t, obs(t, persons=(True, False)), PLAN.overlay_at(t), CFG)
+    assert s["state"] == "DONE" and ev[0].detail["reason"] == "home"
+
+
+def test_co2_cycle_ends_with_its_window():
+    from src.hvac.core.guards import co2_decay_step
+    t = datetime(2026, 11, 22, 20, 59)
+    s = {"state": "MEDIUM", "since": "2026-11-22T20:00:00", "away_since": "2026-11-22T07:00:00",
+         "window": "co2_cycle@2026-11-22T05:30", "block": 7}
+    t += timedelta(minutes=2)
+    s, ev = co2_decay_step(s, t, obs(t, persons=(False, False)), PLAN.overlay_at(t), CFG)
+    assert s["state"] == "DONE" and ev[0].detail["reason"] == "window_end"

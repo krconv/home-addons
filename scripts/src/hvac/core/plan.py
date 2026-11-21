@@ -211,6 +211,11 @@ CO2_DECAY_WINDOWS = tuple(
     for start, end in [(D(2026, 11, d, 9, 0), D(2026, 11, d, 16, 0)) for d in (16, 17, 18, 19, 20)]
     # Sat 11-21: Kodey and Maddy out ~07:30 for 3-4 h; ends at fan_auto_sunny, which owns the ERV.
     + [(D(2026, 11, 21, 7, 0), D(2026, 11, 21, 12, 0))]
+) + (
+    # Sun 11-22: house empty, dog too. ERV Off/Medium in 2 h blocks while away; ends at coast_4.
+    _seg(D(2026, 11, 22, 5, 30), D(2026, 11, 22, 21, 0), "co2_cycle", "co2_decay", DesiredPatch(),
+         goal="infiltration and ERV airflow from CO2 decay, no occupants", isolates=("ach",),
+         reactive="co2_cycle"),
 )
 
 

@@ -184,12 +184,14 @@ def hold_at_start_step(holds: dict, group: str, obs: Observation, d: Desired) ->
 CO2_OFF_MIN = 60
 CO2_MEDIUM_MIN = 60
 CO2_AWAY_MIN = 30
+CO2_CYCLE_BLOCK_MIN = 120
 
 
 def co2_decay_step(state: dict, now: datetime, obs: Observation, overlay: Optional[Segment],
                    cfg: Config) -> tuple[dict, list[Event]]:
     """IDLE -> OFF (60 min) -> MEDIUM (60 min) -> DONE; ABORTED on CO2 > abort or someone home.
-    One attempt per overlay window."""
+    A `co2_cycle` window instead alternates OFF and MEDIUM in 2 h blocks until someone comes home or
+    the window ends, which is DONE: every finished block is data. One attempt per overlay window."""
     s = dict(state)
     events: list[Event] = []
     away = both_away(obs)
@@ -203,12 +205,30 @@ def co2_decay_step(state: dict, now: datetime, obs: Observation, overlay: Option
     if st == "IDLE":
         if overlay is None or obs.co2 is None or not away:
             return s, events
-        enough_time = overlay.end - now >= timedelta(minutes=CO2_OFF_MIN + CO2_MEDIUM_MIN)
+        need = CO2_CYCLE_BLOCK_MIN if overlay.reactive == "co2_cycle" else CO2_OFF_MIN + CO2_MEDIUM_MIN
+        enough_time = overlay.end - now >= timedelta(minutes=need)
         if enough_time and now - _t(s["away_since"]) >= timedelta(minutes=CO2_AWAY_MIN):
-            s.update(state="OFF", since=_iso(now), window=overlay.key)
+            s.update(state="OFF", since=_iso(now), window=overlay.key, block=1)
             events.append(Event(now, "co2_decay", {"phase": "OFF", "co2": obs.co2}))
         return s, events
     since = _t(s["since"])
+    if overlay is not None and overlay.reactive == "co2_cycle" and s.get("window") == overlay.key:
+        if obs.co2 is not None and obs.co2 > cfg.co2_test_abort:
+            s.update(state="ABORTED", since=_iso(now))
+            events.append(Event(now, "co2_decay", {"phase": "ABORTED", "co2": obs.co2, "away": away}))
+        elif not away:
+            s.update(state="DONE", since=_iso(now))
+            events.append(Event(now, "co2_decay", {"phase": "DONE", "co2": obs.co2, "reason": "home"}))
+        elif now - since >= timedelta(minutes=CO2_CYCLE_BLOCK_MIN):
+            nxt = "MEDIUM" if st == "OFF" else "OFF"
+            s.update(state=nxt, since=_iso(now), block=s.get("block", 1) + 1)
+            events.append(Event(now, "co2_decay", {"phase": nxt, "co2": obs.co2, "block": s["block"]}))
+        return s, events
+    if s.get("window") is not None and (overlay is None or s.get("window") != overlay.key) \
+            and str(s.get("window")).startswith("co2_cycle@"):
+        s.update(state="DONE", since=_iso(now))
+        events.append(Event(now, "co2_decay", {"phase": "DONE", "co2": obs.co2, "reason": "window_end"}))
+        return s, events
     if (obs.co2 is not None and obs.co2 > cfg.co2_test_abort) or not away:
         s.update(state="ABORTED", since=_iso(now))
         events.append(Event(now, "co2_decay", {"phase": "ABORTED", "co2": obs.co2, "away": away}))
