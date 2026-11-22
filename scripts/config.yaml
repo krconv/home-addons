@@ -1,5 +1,5 @@
 name: "Scripts"
-version: "2026.11.21a"
+version: "2026.11.22a"
 slug: "scripts"
 description: "General-purpose Python automation platform for Home Assistant integrations"
 arch:
@@ -19,6 +19,8 @@ options:
     - name: "lights"
       enabled: true
       config_file: "/config/lights.yaml"
+    - name: "leds"
+      enabled: true
   hvac:
     dry_run: true
     lockout_auto_reset: false
