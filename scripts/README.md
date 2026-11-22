@@ -54,6 +54,36 @@ hvac:
 
 `dry_run` defaults to `true`. Leave it on for a day and read the `DRY` lines in the add-on log or the journal before turning it off.
 
+### LEDs App
+
+Owns the LED bar on every Inovelli Blue switch (VZM30/31/35/36) on the Zigbee2MQTT bridges. Two layers decide what each bar shows.
+
+**House setting.** A Home Assistant light, **Switch LED Bars** (`light.switch_led_bars`), made with MQTT discovery. Its effect dropdown has the switches' built-in whole-bar effects (solid, pulse, chase, aurora, blink, falling, rising, siren and others) plus red/green patterns: `christmas_checker` (each bar alternates LED by LED, flipped on every other switch), `christmas_pulse` and `christmas_chase` (every other switch red, the rest green). The color wheel and brightness apply to the built-in effects. Off means the normal level indicator. The light's retained state topic `scripts/leds/state` is the app's memory across restarts.
+
+**Requests.** Anything can ask for a look on some rooms or switches, with a priority; on each switch the highest-priority request wins, and with none the house setting shows. A room is the part of the switch's Zigbee2MQTT name before "Switch" (`Kitchen Switch A` is in `kitchen`); the list is published retained on `scripts/leds/rooms`.
+
+- MQTT: publish to `scripts/leds/request/<id>` (retain it to survive restarts); an empty payload releases it. Active requests are published retained on `scripts/leds/requests`.
+- In-process: `leds_app.instance().request(id, data)` and `.release(id)` from the event loop.
+
+```json
+{"rooms": ["Kitchen"], "switches": ["Nook Switch"], "effect": "fast_blink",
+ "color": 0, "color_b": 85, "level": 100, "priority": 50, "expires_s": 600}
+```
+
+All fields are optional. No `rooms` or `switches` means every switch. `effect` is a built-in effect, a pattern, or `off` (force the normal indicator). `color` and `color_b` are Inovelli's 0-255 scale (0 red, 21 orange, 42 yellow, 85 green, 127 cyan, 170 blue, 212 purple, 234 pink, 255 white) or `{"h": 0-360, "s": 0-100}`; `color_b` alternates switches. `priority` defaults to 50.
+
+**Delivery.** A reconcile loop sends each switch only what changed since the last thing it was sent, and restarts from the top on every change. Zigbee2MQTT 2.4 can't send Inovelli's LED commands to a Zigbee group, so each switch gets its own command, 60 ms apart: a whole-bar change reaches ~50 switches in about 4 seconds, a per-LED pattern in about 30. Each switch starts its animation when its command arrives, so animations are not in step across switches. A switch that rejoins its network (power cut, re-pair) is sent its look again. At startup every bar is assumed to show its normal indicator, so a restart with the house light off and no requests sends nothing.
+
+It overwrites LED notifications that something outside this app puts on the bars whenever it changes those switches. Like hvac, a failure is logged and never stops or restarts the add-on.
+
+Enable it by adding it to `apps`:
+
+```yaml
+apps:
+  - name: leds
+    enabled: true
+```
+
 ## Installation
 
 1. Add this repository to your Home Assistant add-on store
