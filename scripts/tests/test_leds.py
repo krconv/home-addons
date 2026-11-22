@@ -5,8 +5,19 @@ import logging
 import pytest
 
 from src import leds_app, zigbee
-from src.leds_app import (EFFECTS, OFF, LedsApp, Look, Request, Setting, inovelli_color,
-                          interleave, look_for, room_of, switch_payloads)
+from src.leds_app import (
+    EFFECTS,
+    OFF,
+    LedsApp,
+    Look,
+    Request,
+    Setting,
+    inovelli_color,
+    interleave,
+    look_for,
+    room_of,
+    switch_payloads,
+)
 
 
 def device(name, base="zigbee2mqtt-a", ieee=None, model="VZM31-SN", manufacturer="Inovelli"):

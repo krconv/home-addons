@@ -52,10 +52,10 @@ PATTERNS = {
 }
 EFFECTS = BAR_EFFECTS + list(PATTERNS)
 
-_instance: "LedsApp | None" = None
+_instance: LedsApp | None = None
 
 
-def instance() -> "LedsApp | None":
+def instance() -> LedsApp | None:
     """The running LedsApp, for other apps in this add-on to send requests to."""
     return _instance
 
@@ -125,7 +125,7 @@ class Setting:
             "effect": self.effect,
         }
 
-    def merge(self, command: dict) -> "Setting":
+    def merge(self, command: dict) -> Setting:
         s = replace(self)
         if "state" in command:
             s.on = str(command["state"]).upper() == "ON"
@@ -151,7 +151,7 @@ class Request:
     expires_at: float | None = None  # time.monotonic()
 
     @classmethod
-    def parse(cls, request_id: str, data: dict, now: float) -> "Request":
+    def parse(cls, request_id: str, data: dict, now: float) -> Request:
         """From the MQTT/in-process form:
         {"rooms": ["Kitchen"], "switches": ["Nook Switch"], "effect": "pulse",
          "color": 0 or {"h": 0, "s": 100}, "color_b": 85, "level": 100,
@@ -287,7 +287,7 @@ class LedsApp:
         self._mqtt.subscribe(f"{TOPIC}/state", on_state)
         try:
             await asyncio.wait_for(restored.wait(), 3)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self.logger.info("No saved LED setting; starting off")
         self._mqtt.unsubscribe(f"{TOPIC}/state", on_state)
 
