@@ -203,6 +203,21 @@ WEEK = (
          goal="drop East so hp_recovery_2 has a step"),
     _seg(D(2026, 11, 24, 3, 30), D(2026, 11, 24, 5, 30), "hp_recovery_2", "recovery",
          P(east=heat(68), radiant=64), goal="heat pump lag", isolates=("hp_lag",)),
+    # Week 2: the boiler's live gas input makes delivered radiant heat measurable.
+    _seg(D(2026, 11, 24, 19, 0), D(2026, 11, 25, 7, 0), "radiant_ua", "hold",
+         P(east=heat(64), radiant=68), goal="whole-house UA from boiler gas input at steady state",
+         isolates=("UA",),
+         note="Tue night, forecast low 19 F; heat pump only as the 64 floor; ends before sun"),
+    _seg(D(2026, 11, 25, 21, 0), D(2026, 11, 25, 23, 0), "zone_basement", "zone_step",
+         P(east=heat(64), radiant=64, BASEMENT=heat(72)), goal="basement emitter output and lag",
+         isolates=("zone_output",)),
+    _seg(D(2026, 11, 25, 23, 0), D(2026, 11, 26, 1, 0), "zone_first", "zone_step",
+         P(east=heat(64), radiant=64, FIRST=heat(72)), goal="first floor emitter output and lag",
+         isolates=("zone_output",)),
+    _seg(D(2026, 11, 26, 1, 0), D(2026, 11, 26, 3, 0), "zone_west", "zone_step",
+         P(east=heat(64), radiant=64, WEST=heat(72)),
+         goal="west wing emitter output and lag (drives the West and East wing loops)",
+         isolates=("zone_output",), note="Wed night, forecast low 21 F; baseline recovery from 03:30"),
 )
 
 CO2_DECAY_WINDOWS = tuple(
