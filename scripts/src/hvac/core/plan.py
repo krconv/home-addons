@@ -218,6 +218,17 @@ WEEK = (
          P(east=heat(64), radiant=64, WEST=heat(72)),
          goal="west wing emitter output and lag (drives the West and East wing loops)",
          isolates=("zone_output",), note="Wed night, forecast low 21 F; baseline recovery from 03:30"),
+    # Rerun: Wed night's steps were void (boiler powered off at its display). CH setpoint 110, on-swing -15.
+    _seg(D(2026, 11, 26, 22, 30), D(2026, 11, 27, 0, 30), "zone_basement_2", "zone_step",
+         P(east=heat(64), radiant=64, BASEMENT=heat(72)), goal="basement emitter output and lag",
+         isolates=("zone_output",)),
+    _seg(D(2026, 11, 27, 0, 30), D(2026, 11, 27, 2, 30), "zone_first_2", "zone_step",
+         P(east=heat(64), radiant=64, FIRST=heat(72)), goal="first floor emitter output and lag",
+         isolates=("zone_output",)),
+    _seg(D(2026, 11, 27, 2, 30), D(2026, 11, 27, 4, 30), "zone_west_2", "zone_step",
+         P(east=heat(64), radiant=64, WEST=heat(72)),
+         goal="west wing emitter output and lag (drives the West and East wing loops)",
+         isolates=("zone_output",), note="Thu night; baseline recovery from 04:30, comfort 05:30"),
 )
 
 CO2_DECAY_WINDOWS = tuple(
