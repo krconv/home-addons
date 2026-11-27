@@ -4,24 +4,34 @@ Two layers decide what each bar shows:
 
 - The house setting: a Home Assistant light ("Switch LED Bars") made with MQTT discovery, with
   on/off, brightness, a color and an effect dropdown. Its retained state topic is the app's
-  memory, so a restart picks it back up. Off means the bars show their normal level indicator.
+  memory, so a restart picks it back up. Off puts the factory indicator back.
 - Requests: other apps (or anything on MQTT) ask for a look on some rooms or switches, with a
   priority, e.g. the lights app showing an unhealthy room in red. On each switch the
   highest-priority request wins; with none, the house setting shows. Releasing a request puts
   those switches back. Send a request to `scripts/leds/request/<id>` (empty payload releases
   it) or call `LedsApp.request()` / `LedsApp.release()` in-process.
 
-A reconcile loop sends each switch only what changed since the last thing it was sent.
-Zigbee2MQTT 2.4 can't send Inovelli's custom-cluster commands to a group, so every switch gets
-its own unicast command, paced so the mesh isn't flooded: about 4 s for a whole-bar effect on
-~50 switches, about 30 s for per-LED patterns. A switch that rejoins (power cut, re-pair) is
-sent its look again.
+A look is drawn with two of the switch's own features:
+
+- The indicator: the bar that shows the dim level. Its color and brightness are parameters
+  (P95-P98 for the whole bar, P60-P93 per LED), stored in the switch, so they follow the load's
+  level and on/off, survive a power cut, and never flash. A steady color or pattern uses only
+  this.
+- A notification (`led_effect`): an animation that covers the whole bar. Only animated effects
+  use it, on top of an indicator in the same color, so the switch never shows another color
+  when it briefly drops the animation to show a level change.
+
+The reconcile loop writes only what differs from what each switch last reported (or was just
+sent), restarts from the top on every change, and runs every 10 minutes to put back anything
+that drifted. Zigbee2MQTT 2.4 can't send Inovelli's custom-cluster commands to a group, so
+every switch gets its own commands, paced so the mesh isn't flooded.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field, replace
 
@@ -29,49 +39,68 @@ from . import mqtt, zigbee
 
 TOPIC = "scripts/leds"
 DISCOVERY_TOPIC = "homeassistant/light/scripts_led_bars/config"
+STATE_FILE = "/data/leds/notifications.json"
 LED_MODELS = {"VZM30-SN", "VZM31-SN", "VZM35-SN", "VZM36"}
 LEDS_PER_BAR = 7
-PACE_S = 0.06
+PACE_S = 0.06  # per Zigbee command
 DEBOUNCE_S = 0.5
 REJOIN_SETTLE_S = 5
-# Inovelli's "until cleared" duration.
+RESYNC_S = 600
+# Inovelli's "until cleared" notification duration.
 FOREVER = 255
-RED, GREEN, WHITE = 0, 85, 255
+# Inovelli's color scale: 0 red, 21 orange, 42 yellow, 85 green, 127 cyan, 170 blue,
+# 212 purple, 234 pink, 255 white.
+RED, GREEN, BLUE, WHITE = 0, 85, 170, 255
+# Per-LED parameter values that mean "use the whole-bar parameter".
+SYNC_COLOR, SYNC_INTENSITY = 255, 101
 
-# Whole-bar effects the switch firmware runs itself (Zigbee2MQTT led_effect names).
-BAR_EFFECTS = [
-    "solid", "pulse", "chase", "slow_chase", "fast_chase", "aurora", "open_close", "small_to_big",
+# The factory indicator: what "off" puts back (Inovelli defaults, and this house's settings).
+FACTORY_COLOR, FACTORY_ON_INTENSITY, FACTORY_OFF_INTENSITY = BLUE, 33, 1
+
+# Animations the switch firmware runs itself (Zigbee2MQTT led_effect names). "solid" isn't an
+# animation: it's the indicator in the chosen color, following the load's level.
+ANIMATIONS = [
+    "pulse", "chase", "slow_chase", "fast_chase", "aurora", "open_close", "small_to_big",
     "slow_blink", "medium_blink", "fast_blink", "slow_falling", "medium_falling", "fast_falling",
     "slow_rising", "medium_rising", "fast_rising", "slow_siren", "fast_siren",
 ]
-# Patterns built from those, with their own colors: (kind, effect, color A, color B).
+# Patterns with their own colors: (kind, effect, color A, color B).
 PATTERNS = {
     "christmas_checker": ("checker", "solid", RED, GREEN),
+    "christmas_alternate": ("alternate", "solid", RED, GREEN),
     "christmas_pulse": ("alternate", "pulse", RED, GREEN),
     "christmas_chase": ("alternate", "chase", RED, GREEN),
 }
-EFFECTS = BAR_EFFECTS + list(PATTERNS)
+EFFECTS = ["solid"] + ANIMATIONS + list(PATTERNS)
 
-_instance: LedsApp | None = None
+_instance: "LedsApp | None" = None
 
 
-def instance() -> LedsApp | None:
+def instance() -> "LedsApp | None":
     """The running LedsApp, for other apps in this add-on to send requests to."""
     return _instance
 
 
 @dataclass(frozen=True)
 class Look:
-    """What one bar should show. kind: off (normal indicator), bar, alternate or checker."""
+    """What one bar should show.
+
+    kind: off (factory indicator), bar (one color), alternate (every other switch color_b) or
+    checker (LEDs alternate color/color_b, flipped on every other switch). effect: "solid" or
+    an animation. level: brightness 1-100.
+    """
 
     kind: str = "off"
     effect: str = "solid"
-    color: int = 0
-    color_b: int = 0
-    level: int = 100
+    color: int = FACTORY_COLOR
+    color_b: int = FACTORY_COLOR
+    level: int = FACTORY_ON_INTENSITY
 
 
 OFF = Look()
+
+# A notification on a switch: (effect, color, level), or None for no notification.
+Notification = tuple[str, int, int] | None
 
 
 def look_for(effect: str, color: int, level: int, color_b: int | None = None) -> Look:
@@ -80,7 +109,7 @@ def look_for(effect: str, color: int, level: int, color_b: int | None = None) ->
     if effect in PATTERNS:
         kind, fx, a, b = PATTERNS[effect]
         return Look(kind, fx, a, b, level)
-    if effect not in BAR_EFFECTS:
+    if effect != "solid" and effect not in ANIMATIONS:
         raise ValueError(f"unknown effect {effect!r}")
     if color_b is not None:
         return Look("alternate", effect, color, color_b, level)
@@ -88,7 +117,7 @@ def look_for(effect: str, color: int, level: int, color_b: int | None = None) ->
 
 
 def inovelli_color(hue: float, saturation: float) -> int:
-    """Home Assistant hue/saturation to Inovelli's 0-255 scale (0 red ... 254, 255 white)."""
+    """Home Assistant hue/saturation to Inovelli's scale (0 red ... 254, 255 white)."""
     if saturation < 20:
         return WHITE
     return round((hue % 360) / 360 * 254)
@@ -99,6 +128,59 @@ def parse_color(value) -> int:
     if isinstance(value, dict):
         return inovelli_color(float(value["h"]), float(value.get("s", 100)))
     return max(0, min(255, int(value)))
+
+
+def indicator(look: Look, index: int) -> dict[str, int]:
+    """The indicator parameters (Zigbee2MQTT keys) that draw `look` on switch number `index`."""
+    if look.kind == "off":
+        color, on, off = FACTORY_COLOR, FACTORY_ON_INTENSITY, FACTORY_OFF_INTENSITY
+    else:
+        color = look.color_b if look.kind == "alternate" and index % 2 == 1 else look.color
+        on, off = look.level, min(look.level, FACTORY_OFF_INTENSITY)
+    params = {
+        "ledColorWhenOn": color, "ledColorWhenOff": color,
+        "ledIntensityWhenOn": on, "ledIntensityWhenOff": off,
+    }
+    flip = index % 2 == 1
+    for n in range(1, LEDS_PER_BAR + 1):
+        if look.kind == "checker":
+            led_color = look.color if (n % 2 == 1) != flip else look.color_b
+        else:
+            led_color = SYNC_COLOR
+        params[f"defaultLed{n}ColorWhenOn"] = led_color
+        params[f"defaultLed{n}ColorWhenOff"] = led_color
+        params[f"defaultLed{n}IntensityWhenOn"] = SYNC_INTENSITY
+        params[f"defaultLed{n}IntensityWhenOff"] = SYNC_INTENSITY
+    return params
+
+
+def notification(look: Look, index: int) -> Notification:
+    """The animation `look` runs on switch number `index`, or None."""
+    if look.kind == "off" or look.effect == "solid":
+        return None
+    color = look.color_b if look.kind == "alternate" and index % 2 == 1 else look.color
+    return (look.effect, color, look.level)
+
+
+def notification_payloads(want: Notification, had: Notification | str) -> list[dict]:
+    """Commands that take a switch from notification `had` to `want`. `had` is "unknown" when
+    the app doesn't know what's on the switch (first run): then everything is cleared."""
+    if want == had:
+        return []
+    if want is not None:
+        effect, color, level = want
+        return [{"led_effect": {"effect": effect, "color": color, "level": level,
+                                "duration": FOREVER}}]
+    payloads = [{"led_effect": _clear()}]
+    if had == "unknown":
+        # Single-LED notifications (an older version of this app used them) sit under the bar.
+        payloads += [{"individual_led_effect": {"led": str(n), **_clear()}}
+                     for n in range(1, LEDS_PER_BAR + 1)]
+    return payloads
+
+
+def _clear() -> dict:
+    return {"effect": "clear_effect", "color": 0, "level": 0, "duration": 0}
 
 
 @dataclass
@@ -125,7 +207,7 @@ class Setting:
             "effect": self.effect,
         }
 
-    def merge(self, command: dict) -> Setting:
+    def merge(self, command: dict) -> "Setting":
         s = replace(self)
         if "state" in command:
             s.on = str(command["state"]).upper() == "ON"
@@ -151,12 +233,12 @@ class Request:
     expires_at: float | None = None  # time.monotonic()
 
     @classmethod
-    def parse(cls, request_id: str, data: dict, now: float) -> Request:
+    def parse(cls, request_id: str, data: dict, now: float) -> "Request":
         """From the MQTT/in-process form:
         {"rooms": ["Kitchen"], "switches": ["Nook Switch"], "effect": "pulse",
          "color": 0 or {"h": 0, "s": 100}, "color_b": 85, "level": 100,
          "priority": 50, "expires_s": 600}
-        effect may be a built-in effect, a pattern or "off" (force the normal indicator).
+        effect may be "solid", an animation, a pattern or "off" (the factory indicator).
         """
         color_b = data.get("color_b")
         look = look_for(
@@ -194,36 +276,6 @@ def room_of(device: zigbee.ZigBeeDevice) -> str:
     return (head if sep else name).strip().lower()
 
 
-def switch_payloads(look: Look, index: int, previous: Look | None = None) -> list[dict]:
-    """The Zigbee2MQTT set payloads that put switch number `index` into `look`, in order."""
-    if look.kind == "off":
-        payloads = [_bar("clear_effect", 0, 0, 0)]
-        # Single-LED effects sit under the bar effect; clear them only if they may be there.
-        if previous is None or previous.kind == "checker":
-            payloads += [_led(n, "clear_effect", 0, 0, 0) for n in range(1, LEDS_PER_BAR + 1)]
-        return payloads
-    if look.kind == "checker":
-        # The bar effect outranks single-LED effects, so clear it first.
-        flip = index % 2 == 1
-        return [_bar("clear_effect", 0, 0, 0)] + [
-            _led(n, look.effect, look.color if (n % 2 == 1) != flip else look.color_b,
-                 look.level, FOREVER)
-            for n in range(1, LEDS_PER_BAR + 1)
-        ]
-    color = look.color_b if look.kind == "alternate" and index % 2 == 1 else look.color
-    return [_bar(look.effect, color, look.level, FOREVER)]
-
-
-def _bar(effect: str, color: int, level: int, duration: int) -> dict:
-    return {"led_effect": {"effect": effect, "color": color, "level": level, "duration": duration}}
-
-
-def _led(n: int, effect: str, color: int, level: int, duration: int) -> dict:
-    return {"individual_led_effect": {
-        "led": str(n), "effect": effect, "color": color, "level": level, "duration": duration,
-    }}
-
-
 def interleave(devices: list) -> list:
     """Alternate between bridges so both Zigbee networks work at the same time."""
     by_base: dict[str, list] = {}
@@ -243,9 +295,12 @@ class LedsApp:
     app_config: dict
     setting: Setting = field(default_factory=Setting)
     requests: dict[str, Request] = field(default_factory=dict)
-    # What each switch (by IEEE) was last sent. Assumed normal at start, so a restart with the
-    # house light off doesn't clear notifications something else put on the bars.
-    sent: dict[str, Look] = field(default_factory=dict)
+    # Indicator values sent since the last resync, by IEEE. Compared before what the switch
+    # reported, so a quick second change doesn't resend what Zigbee2MQTT hasn't echoed yet.
+    written: dict[str, dict[str, int]] = field(default_factory=dict)
+    # The notification on each switch (by IEEE) as far as the app knows; saved to STATE_FILE.
+    notifications: dict[str, Notification] = field(default_factory=dict)
+    state_file: str = STATE_FILE
 
     async def initialize(self) -> None:
         global _instance
@@ -258,7 +313,7 @@ class LedsApp:
         switches = self._switches()
         rooms = sorted({room_of(d) for d in switches})
         self.logger.info(f"Found {len(switches)} switches with LED bars in {len(rooms)} rooms")
-        self.sent = {d.ieee_address: OFF for d in switches}
+        self._load_notifications()
 
         await self._restore_setting()
         self._publish_discovery()
@@ -272,6 +327,7 @@ class LedsApp:
 
         _instance = self
         self._schedule_reconcile(delay=DEBOUNCE_S)
+        self._resync_task = asyncio.create_task(self._resync_forever())
 
     async def _restore_setting(self) -> None:
         """The light's retained state is the last house setting; read it before taking commands."""
@@ -287,9 +343,28 @@ class LedsApp:
         self._mqtt.subscribe(f"{TOPIC}/state", on_state)
         try:
             await asyncio.wait_for(restored.wait(), 3)
-        except TimeoutError:
+        except asyncio.TimeoutError:
             self.logger.info("No saved LED setting; starting off")
         self._mqtt.unsubscribe(f"{TOPIC}/state", on_state)
+
+    def _load_notifications(self) -> None:
+        try:
+            with open(self.state_file) as f:
+                saved = json.load(f)
+            self.notifications = {k: (tuple(v) if v else None) for k, v in saved.items()}
+        except FileNotFoundError:
+            self.logger.info("No saved notification state; clearing notifications once")
+        except (ValueError, TypeError) as e:
+            self.logger.warning(f"Unreadable {self.state_file} ({e}); clearing notifications once")
+
+    def _save_notifications(self) -> None:
+        try:
+            os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
+            with open(self.state_file + ".tmp", "w") as f:
+                json.dump(self.notifications, f)
+            os.replace(self.state_file + ".tmp", self.state_file)
+        except OSError as e:
+            self.logger.warning(f"Couldn't save {self.state_file}: {e}")
 
     # Public API for other apps in this add-on.
 
@@ -327,11 +402,13 @@ class LedsApp:
             self.logger.info(f"LED request {rid!r} expired")
             del self.requests[rid]
 
+    def _current(self, device: zigbee.ZigBeeDevice) -> dict:
+        return device.state.properties | self.written.get(device.ieee_address, {})
+
     # Reconcile.
 
     def _schedule_reconcile(self, delay: float) -> None:
-        # Restart from the top on every change; `sent` is per switch, so finished switches
-        # aren't sent again.
+        # Restart from the top on every change; finished switches have nothing left to send.
         if self._reconcile_task and not self._reconcile_task.done():
             self._reconcile_task.cancel()
         self._reconcile_task = asyncio.create_task(self._reconcile(delay))
@@ -343,24 +420,47 @@ class LedsApp:
         self._arm_next_expiry(now)
         switches = self._switches()
         index = {d.ieee_address: i for i, d in enumerate(switches)}
-        changed = 0
-        for device in interleave(switches):
-            want = self._desired(device, now)
-            had = self.sent.get(device.ieee_address)
-            if want == had:
-                continue
-            for payload in switch_payloads(want, index[device.ieee_address], had):
-                self._send(device, payload)
-                await asyncio.sleep(PACE_S)
-            self.sent[device.ieee_address] = want
-            changed += 1
-        if changed:
-            self.logger.info(f"Updated LED bars on {changed} of {len(switches)} switches")
+        changed = commands = 0
+        try:
+            for device in interleave(switches):
+                ieee, i = device.ieee_address, index[device.ieee_address]
+                look = self._desired(device, now)
+                current = self._current(device)
+                params = {k: v for k, v in indicator(look, i).items() if current.get(k) != v}
+                want = notification(look, i)
+                # Indicator first, so an animation never drops back to the old color. One key
+                # per message: Zigbee2MQTT's Inovelli converter applies only the first key of a
+                # multi-key set and drops the rest.
+                payloads = [{k: v} for k, v in params.items()]
+                payloads += notification_payloads(want, self.notifications.get(ieee, "unknown"))
+                if not payloads:
+                    continue
+                for payload in payloads:
+                    self._send(device, payload)
+                    await asyncio.sleep(PACE_S)
+                self.written.setdefault(ieee, {}).update(params)
+                self.notifications[ieee] = want
+                changed += 1
+                commands += len(payloads)
+        finally:
+            if changed:
+                self._save_notifications()
+                self.logger.info(
+                    f"Updated LED bars on {changed} of {len(switches)} switches ({commands} commands)"
+                )
 
     def _arm_next_expiry(self, now: float) -> None:
         expiries = [r.expires_at for r in self.requests.values() if r.expires_at]
         if expiries:
             self._loop.call_later(max(0.0, min(expiries) - now) + 0.1, self._schedule_reconcile, 0)
+
+    async def _resync_forever(self) -> None:
+        """Compare against what the switches report, so anything that drifted (a change in the
+        Zigbee2MQTT UI, a missed write) is put back."""
+        while True:
+            await asyncio.sleep(RESYNC_S)
+            self.written.clear()
+            self._schedule_reconcile(delay=0)
 
     def _send(self, device: zigbee.ZigBeeDevice, payload: dict) -> None:
         try:
@@ -374,7 +474,7 @@ class LedsApp:
         self._mqtt.publish(DISCOVERY_TOPIC, {
             "name": "Switch LED Bars",
             "unique_id": "scripts_led_bars",
-            "object_id": "switch_led_bars",
+            "default_entity_id": "light.switch_led_bars",
             "icon": "mdi:led-strip-variant",
             "schema": "json",
             "command_topic": f"{TOPIC}/set",
@@ -444,7 +544,8 @@ class LedsApp:
     # Rejoins.
 
     def _on_bridge_event(self, topic: str, payload: str) -> None:
-        """A switch that rejoins (power cut, re-pair) has lost its effect; send it again."""
+        """A switch that rejoins (power cut, re-pair) keeps its indicator parameters but loses
+        its notification; send that again."""
         try:
             event = json.loads(payload)
         except ValueError:
@@ -455,8 +556,7 @@ class LedsApp:
         self._loop.call_soon_threadsafe(self._on_rejoin, ieee)
 
     def _on_rejoin(self, ieee: str) -> None:
-        if ieee not in self.sent:
+        if self.notifications.get(ieee) is None:
             return
-        # A rebooted switch shows its normal indicator; wait for it to settle, then reconcile.
-        self.sent[ieee] = OFF
+        self.notifications[ieee] = None
         self._loop.call_later(REJOIN_SETTLE_S, self._schedule_reconcile, 0)
