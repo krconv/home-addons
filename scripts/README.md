@@ -58,7 +58,7 @@ hvac:
 
 Owns the LED bar on every Inovelli Blue switch (VZM30/31/35/36) on the Zigbee2MQTT bridges. Two layers decide what each bar shows.
 
-**House setting.** A Home Assistant light, **Switch LED Bars** (`light.switch_led_bars`), made with MQTT discovery. Its effect dropdown has the switches' built-in whole-bar effects (solid, pulse, chase, aurora, blink, falling, rising, siren and others) plus red/green patterns: `christmas_checker` (each bar alternates LED by LED, flipped on every other switch), `christmas_pulse` and `christmas_chase` (every other switch red, the rest green). The color wheel and brightness apply to the built-in effects. Off means the normal level indicator. The light's retained state topic `scripts/leds/state` is the app's memory across restarts.
+**House setting.** A Home Assistant light, **Switch LED Bars** (`light.switch_led_bars`), made with MQTT discovery. Its color and brightness set the bar's color and brightness. Its effect dropdown has `solid` (the bar's normal level indicator in that color), the switches' built-in animations (pulse, chase, aurora, blink, falling, rising, siren and others), and red/green patterns: `christmas_checker` (each bar alternates LED by LED, flipped on every other switch), `christmas_alternate` (every other switch red, the rest green), `christmas_pulse` and `christmas_chase`. Off puts the factory indicator back (blue, 33% with the load on, 1% off). The light's retained state topic `scripts/leds/state` is the app's memory across restarts.
 
 **Requests.** Anything can ask for a look on some rooms or switches, with a priority; on each switch the highest-priority request wins, and with none the house setting shows. A room is the part of the switch's Zigbee2MQTT name before "Switch" (`Kitchen Switch A` is in `kitchen`); the list is published retained on `scripts/leds/rooms`.
 
@@ -70,11 +70,16 @@ Owns the LED bar on every Inovelli Blue switch (VZM30/31/35/36) on the Zigbee2MQ
  "color": 0, "color_b": 85, "level": 100, "priority": 50, "expires_s": 600}
 ```
 
-All fields are optional. No `rooms` or `switches` means every switch. `effect` is a built-in effect, a pattern, or `off` (force the normal indicator). `color` and `color_b` are Inovelli's 0-255 scale (0 red, 21 orange, 42 yellow, 85 green, 127 cyan, 170 blue, 212 purple, 234 pink, 255 white) or `{"h": 0-360, "s": 0-100}`; `color_b` alternates switches. `priority` defaults to 50.
+All fields are optional. No `rooms` or `switches` means every switch. `effect` is `solid` (default), an animation, a pattern, or `off` (the factory indicator). `color` and `color_b` are Inovelli's 0-255 scale (0 red, 21 orange, 42 yellow, 85 green, 127 cyan, 170 blue, 212 purple, 234 pink, 255 white) or `{"h": 0-360, "s": 0-100}`; `color_b` alternates switches. `priority` defaults to 50.
 
-**Delivery.** A reconcile loop sends each switch only what changed since the last thing it was sent, and restarts from the top on every change. Zigbee2MQTT 2.4 can't send Inovelli's LED commands to a Zigbee group, so each switch gets its own command, 60 ms apart: a whole-bar change reaches ~50 switches in about 4 seconds, a per-LED pattern in about 30. Each switch starts its animation when its command arrives, so animations are not in step across switches. A switch that rejoins its network (power cut, re-pair) is sent its look again. At startup every bar is assumed to show its normal indicator, so a restart with the house light off and no requests sends nothing.
+**How a look is drawn.** Two of the switch's own features, from [Inovelli's parameter list](https://help.inovelli.com/en/articles/8189241-blue-series-dimmer-switch-parameters):
 
-It overwrites LED notifications that something outside this app puts on the bars whenever it changes those switches. Like hvac, a failure is logged and never stops or restarts the add-on.
+- The indicator, the bar that shows the dim level. Its color and brightness are parameters stored in the switch: P95/P96 color with the load on/off, P97/P98 intensity on/off, P60-P93 per-LED colors (255 and 101 mean "use the whole-bar value"). They follow the load's level and on/off, survive a power cut, and don't flash. `solid` and the checker/alternate patterns use only these. Brightness sets P97; P98 stays at 1% (or lower).
+- A notification (`led_effect`), an animation over the whole bar. Only animations use it, always on top of an indicator in the same color: the switch drops a notification for a moment to show a level change, and it shows the indicator then.
+
+**Delivery.** A reconcile loop writes only the parameters that differ from what each switch last reported (or was just sent), restarts from the top on every change, and every 10 minutes compares against the switches' reports again, so a change made elsewhere is put back. Each parameter is its own `/set` message: Zigbee2MQTT's Inovelli converter applies only the first key of a multi-key message. Zigbee2MQTT 2.4 can't send Inovelli's commands to a Zigbee group, so each switch gets its own commands, 60 ms apart: a color change is 2 writes a switch (about 6 seconds for ~50 switches), a brightness change 1. Animations start when each switch's command arrives, so they are not in step across switches. A switch that rejoins its network keeps its parameters and is sent its animation again. The notification last sent to each switch is saved in `/data/leds/notifications.json`; without that file (first run) every switch's notifications are cleared once.
+
+It overwrites any LED notification something outside this app puts on a switch whenever it changes that switch's notification. Like hvac, a failure is logged and never stops or restarts the add-on.
 
 Enable it by adding it to `apps`:
 
