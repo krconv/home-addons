@@ -39,7 +39,7 @@ def matching(now, plan=PLAN, mem=None, **kw):
 
 
 def test_plan_validates_and_rejects_bad_rows():
-    assert len(PLAN.segments) == 29
+    assert len(PLAN.segments) == 32
     s = PLAN.segments[0]
     with pytest.raises(ValueError):
         Plan(segments=(s, s))
