@@ -81,7 +81,6 @@ class Boiler:
     board boots at 99.5 F after a power loss and works in 0.5 C steps, so 110.3 F is 43.5 C."""
     ch_f: float = 110.3
     tolerance_f: float = 1.0
-    fresh_min: float = 30.0         # a readback older than this proves nothing
     reassert_min: float = 10.0
 
 

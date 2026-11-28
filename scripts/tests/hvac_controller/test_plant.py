@@ -58,15 +58,17 @@ def test_sense_reads_prices_and_flags_the_propane_default():
     assert p.propane_gal == 2.9 and not p.propane_default
 
 
-def test_sense_drops_stale_heat_pump_and_ch_evidence():
-    st = {"binary_sensor.heat_pump_compressor": _state("off", DAY - timedelta(minutes=10)),
+def test_sense_trusts_change_only_entities_while_their_source_is_live():
+    st = {"binary_sensor.heat_pump_compressor": _state("off", DAY - timedelta(days=1)),
           "sensor.home_power_monitor_heat_pump_power": _state(220.5, DAY),
           "switch.boiler_power": _state("on", DAY - timedelta(days=2)),
-          "number.boiler_heating_setpoint": _state(99.5, DAY - timedelta(hours=1))}
+          "number.boiler_heating_setpoint": _state(99.5, DAY - timedelta(hours=5))}
     s = sense.read(st, DAY, SITE)
-    assert s.hp == HeatPumpObs(None, 220.5) and s.boiler == BoilerObs(True, None)
-    st["number.boiler_heating_setpoint"] = _state(99.5, DAY - timedelta(minutes=2))
-    assert sense.read(st, DAY, SITE).boiler.ch_f == 99.5
+    assert s.hp == HeatPumpObs(False, 220.5) and s.boiler == BoilerObs(True, 99.5)
+    st["sensor.home_power_monitor_heat_pump_power"] = _state(220.5, DAY - timedelta(minutes=10))
+    st["switch.boiler_power"] = _state("off", DAY)
+    assert sense.read(st, DAY, SITE).hp == HeatPumpObs(None, None)
+    assert sense.read(st, DAY, SITE).boiler == BoilerObs(False, None)
 
 
 # --- boiler ---------------------------------------------------------------------------------

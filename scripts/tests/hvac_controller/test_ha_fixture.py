@@ -36,8 +36,8 @@ def test_sense_reads_the_recorded_states_into_expected_tiers():
                      "FIRST": (Tier.ROOM, ("Nook",)), "BASEMENT": (Tier.THERMOSTAT, ())}
     assert s.temps["EAST"].value == 71 - SITE.thermostats["HP"].offset_f
     assert s.tstats["RAD_FIRST"].setpoint == 85 and s.tstats["HP"].action == "fan"
-    assert s.boiler == BoilerObs(power=False, ch_f=None)          # CH readback last moved at 11:24
-    assert s.hp.compressor is None and round(s.hp.power_w) == 217  # compressor row is from 14:58
+    assert s.boiler == BoilerObs(power=False, ch_f=None)
+    assert s.hp.compressor is False and round(s.hp.power_w) == 217
     assert s.prices.kwh == {} and s.prices.propane_default
     assert s.tou is None and not s.enabled
 
