@@ -54,6 +54,23 @@ hvac:
 
 `dry_run` defaults to `true`. Leave it on for a day and read the `DRY` lines in the add-on log or the journal before turning it off.
 
+### HVAC Controller App
+
+The whole-house heating controller that will replace the hvac app. It runs beside it with its own `dry_run`, which defaults to `true`; in dry run it reads Home Assistant and publishes `sensor.hvac_controller_status`, and nothing else. Every 60 seconds it fuses each zone's eye-level room sensors (a settled Airthings counts for its room; the thermostat's own reading is the fallback), and decides for each of the heat pump and three radiant circuits whether it should be on. A circuit is switched by moving its thermostat between two heat setpoints: a hold that keeps the coldest room above 64 °F if the app stops, and a bounded call.
+
+- The status state is `rules (dry)`, `rules` or `disabled`; the attributes carry each zone's temperature and coldest room, each circuit's setpoint and the rule that won.
+- Journals every intent (what it would set, the winning rule, and whether the thermostat shows something else) and a sample every 15 minutes to `/data/hvac-controller/shadow/journal.jsonl` (`live/` when live).
+- Live only: `input_boolean.hvac_controller_enabled` is the kill switch; off sets every thermostat to its hold once, then leaves them alone. Dry run ignores it.
+- Isolated like hvac: a failure never affects lights or the health check. Don't turn off `dry_run` while the hvac app is live.
+
+```yaml
+apps:
+  - name: hvac_controller
+    enabled: true
+hvac_controller:
+  dry_run: true
+```
+
 ### LEDs App
 
 Owns the LED bar on every Inovelli Blue switch (VZM30/31/35/36) on the Zigbee2MQTT bridges. Two layers decide what each bar shows.
@@ -119,6 +136,8 @@ apps:                             # List of apps to run
 hvac:                             # Options for the hvac app (see HVAC App)
   dry_run: true
   lockout_auto_reset: false
+hvac_controller:                  # Options for the hvac_controller app (see HVAC Controller App)
+  dry_run: true
 ```
 
 ### Lights App Configuration

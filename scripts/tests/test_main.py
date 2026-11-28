@@ -71,3 +71,27 @@ def test_lights_starts_without_supervisor_token(manager, monkeypatch):
     monkeypatch.delenv("SUPERVISOR_TOKEN", raising=False)
     asyncio.run(manager.initialize())
     _assert_lights_up(manager)
+
+
+@pytest.fixture
+def manager_with_controller(tmp_path, monkeypatch, manager):
+    opts = {**OPTIONS, "apps": [{"name": "hvac_controller", "enabled": True}, {"name": "lights", "enabled": True}]}
+    (tmp_path / "options.local.json").write_text(json.dumps(opts))
+    return main.AppManager()
+
+
+def test_lights_starts_when_hvac_controller_raises_in_init(manager_with_controller, monkeypatch):
+    from src.hvac_controller import app as controller_app
+    monkeypatch.setattr(controller_app, "ControllerApp", BrokenHvac)
+    asyncio.run(manager_with_controller.initialize())
+    _assert_lights_up(manager_with_controller)
+
+
+def test_lights_starts_when_hvac_controller_cannot_import(manager_with_controller, monkeypatch):
+    monkeypatch.setitem(sys.modules, "src.hvac_controller.app", None)
+    asyncio.run(manager_with_controller.initialize())
+    _assert_lights_up(manager_with_controller)
+
+
+def test_hvac_controller_is_a_background_app():
+    assert "hvac_controller" in main.BACKGROUND_APPS
