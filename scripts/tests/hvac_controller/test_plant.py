@@ -86,12 +86,15 @@ def test_boiler_off_makes_radiant_unusable_after_a_debounce():
 
 
 @pytest.mark.parametrize("dry", [True, False])
-def test_ch_setpoint_is_reasserted_on_fresh_readback_at_most_every_10_min(dry):
+def test_ch_setpoint_is_reasserted_on_fresh_readback_every_10_min_live_once_dry(dry):
     rebooted = snap(boiler=BoilerObs(True, 99.5))
     out = run(rebooted, dry_run=dry)
     assert out.ch == 110.3
     assert run(replace(rebooted, now=DAY + timedelta(minutes=5)), out.mem, dry_run=dry).ch is None
-    assert run(replace(rebooted, now=DAY + timedelta(minutes=10)), out.mem, dry_run=dry).ch == 110.3
+    again = run(replace(rebooted, now=DAY + timedelta(minutes=10)), out.mem, dry_run=dry)
+    assert again.ch == (None if dry else 110.3)
+    fixed = run(snap(now=DAY + timedelta(minutes=11), boiler=BoilerObs(True, 110.3)), again.mem, dry_run=dry)
+    assert run(replace(rebooted, now=DAY + timedelta(minutes=12)), fixed.mem, dry_run=dry).ch == 110.3
     assert run(snap(boiler=BoilerObs(True, 110.3)), dry_run=dry).ch is None
     assert run(snap(boiler=BoilerObs(True, None)), dry_run=dry).ch is None      # stale readback
     assert run(snap(boiler=BoilerObs(False, 99.5)), dry_run=dry).ch is None     # never while off

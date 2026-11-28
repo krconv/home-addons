@@ -112,8 +112,10 @@ class Site:
     boiler_ch: str
     rates: Mapping[TouBand, str]
     propane_price: str
-    # Setpoints the live baseline (the hvac app) writes; anything else in dry run is someone else's.
-    baseline_setpoints: frozenset[int] = frozenset({64, 65, 66, 68, 70})
+    # What the live baseline (the hvac app) writes: heat at these setpoints, and East off on-peak
+    # while West/First take East's target + 1. Anything else seen in dry run is someone else's.
+    baseline_setpoints: frozenset[int] = frozenset({64, 65, 66, 68, 69, 70})
+    baseline_off: frozenset[Circuit] = frozenset({"HP"})
     tz: ZoneInfo = ZoneInfo("America/New_York")
     comfort: Comfort = Comfort()
     limits: Limits = field(default_factory=Limits)

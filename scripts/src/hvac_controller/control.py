@@ -42,7 +42,7 @@ def step(snap: Snapshot, mem: Mem, site: Site, dry_run: bool, policy: Policy = P
     want = guards(policy_wants, snap, mem, blocked, site)
     events += overrides(want, snap, mem, site, dry_run)
     switches = reconcile(want, snap, mem, site, dry_run)
-    ch = equipment.ch_setpoint(snap, mem, site)
+    ch = equipment.ch_setpoint(snap, mem, site, dry_run)
     return Step(want, switches, mem, status(snap, want, mem, site, dry_run, policy, "rules", blocked), ch,
                 tuple(events))
 
@@ -224,7 +224,8 @@ def overrides(want: Wants, snap: Snapshot, mem: Mem, site: Site, dry_run: bool) 
         seen = {"mode": t.mode, "setpoint": t.setpoint}
         ours = t.mode == "heat" and t.setpoint in (spec.hold_f, spec.call_f)
         if dry_run:
-            known = ours or (t.mode == "heat" and t.setpoint in site.baseline_setpoints)
+            known = ours or (t.mode == "heat" and t.setpoint in site.baseline_setpoints) or (
+                t.mode == "off" and c in site.baseline_off)
             if not known and mem.foreign.get(c) != seen:
                 out.append(_event(now, "foreign", c, f"{spec.entity} {t.mode} {t.setpoint}: no known writer"))
                 mem.foreign[c] = seen

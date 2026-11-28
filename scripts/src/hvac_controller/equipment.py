@@ -66,13 +66,17 @@ def _lockout(snap: Snapshot, mem: Mem, site: Site) -> list[dict]:
     return []
 
 
-def ch_setpoint(snap: Snapshot, mem: Mem, site: Site) -> Optional[float]:
+def ch_setpoint(snap: Snapshot, mem: Mem, site: Site, dry_run: bool) -> Optional[float]:
     """The commissioned CH setpoint when a fresh readback with the boiler on shows something else
-    (the 99.5 F boot value), at most once per reassert_min. Without a fresh readback, nothing."""
+    (the 99.5 F boot value). Live: at most once per reassert_min. Dry: once per episode, since
+    nothing it does will change the readback. Without a fresh readback, nothing."""
     b, ch = site.boiler, snap.boiler.ch_f
-    if snap.boiler.power is not True or ch is None or abs(ch - b.ch_f) <= b.tolerance_f:
+    if snap.boiler.power is not True or ch is None:
         return None
-    if mem.ch_at is not None and _minutes(snap.now, mem.ch_at) < b.reassert_min:
+    if abs(ch - b.ch_f) <= b.tolerance_f:
+        mem.ch_at = None
+        return None
+    if mem.ch_at is not None and (dry_run or _minutes(snap.now, mem.ch_at) < b.reassert_min):
         return None
     mem.ch_at = _iso(snap.now)
     return b.ch_f
