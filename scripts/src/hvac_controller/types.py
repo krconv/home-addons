@@ -58,6 +58,28 @@ class TstatObs:
     mode: Optional[str] = None
     setpoint: Optional[int] = None
     reading: Optional[float] = None
+    action: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class HeatPumpObs:
+    """Fresh compressor evidence; None where the reading is missing or stale."""
+    compressor: Optional[bool]
+    power_w: Optional[float]
+
+
+@dataclass(frozen=True)
+class BoilerObs:
+    power: Optional[bool]     # switch.boiler_power, observed only; None when unavailable
+    ch_f: Optional[float]     # CH setpoint readback, None unless fresh
+
+
+@dataclass(frozen=True)
+class Prices:
+    """Electric rates by band (a band is absent when its helper is missing) and propane $/gal."""
+    kwh: Mapping[TouBand, float]
+    propane_gal: float
+    propane_default: bool     # the propane helper is missing: propane_gal is the configured default
 
 
 @dataclass(frozen=True)
@@ -68,6 +90,9 @@ class Snapshot:
     temps: Mapping[Zone, ZoneTemp]
     tstats: Mapping[Circuit, TstatObs]
     tou: Optional[TouBand]
+    hp: HeatPumpObs
+    boiler: BoilerObs
+    prices: Prices
     outdoor_f: Optional[float] = None
 
 
@@ -90,7 +115,7 @@ class Policy:
     recover_h: float = 1.5           # the heat pump starts toward a band step-up this early
     hp_swing_f: float = 1.0          # once on, the heat pump runs to target + swing
     backup_drop_f: float = 2.0       # wing and first-floor radiant hold this far under the heat pump's target
-    peak_primary: Literal["HP", "RADIANT"] = "HP"
+    peak_primary: Literal["COST", "HP", "RADIANT"] = "COST"   # COST: the cheaper delivered MMBTU, with hysteresis
     radiant_lead_h: float = 3.0      # when radiant is primary, it starts toward a step-up this early
     basement_recover_h: float = 2.0
     basement_stop_h: float = 0.0
@@ -131,13 +156,21 @@ class Switch:
 
 @dataclass
 class Mem:
-    """The controller's only state, JSON-plain. A lost file starts fresh, which is safe: every
-    field is re-derived within a slot or only suppresses repeats."""
+    """The controller's only state, JSON-plain. A lost file starts fresh: policy fields re-derive
+    within a slot, a lockout is re-detected in its debounce, and an override is forgotten until our
+    next confirmed setpoint (a live-write ledger is required before live)."""
     latch: dict = field(default_factory=dict)      # circuit -> {"on", "rule", "why", "slot", "slots_on"}
     floor: list = field(default_factory=list)      # zones held by the floor guard
     intent: dict = field(default_factory=dict)     # circuit -> {"on", "rule"}: last journaled intent
     sent: dict = field(default_factory=dict)       # circuit -> [iso times of sends in the last hour]
     killed: bool = False
+    lockout: dict = field(default_factory=dict)    # {"state": suspect|locked, "since", "seen"}; empty is normal
+    primary: dict = field(default_factory=lambda: {"source": "HP", "why": ""})  # last slot's primary source
+    boiler_down: Optional[str] = None              # since when the boiler power switch isn't on
+    ch_at: Optional[str] = None                    # last CH setpoint reassert (live) or intent (dry)
+    confirmed: list = field(default_factory=list)  # circuits seen at our wanted setpoint since the last clear
+    override: dict = field(default_factory=dict)   # circuit -> {"since", "mode", "setpoint"}: hands off
+    foreign: dict = field(default_factory=dict)    # dry: circuit -> {"mode", "setpoint"} no known writer uses
 
     def to_json(self) -> dict:
         return dict(self.__dict__)
@@ -153,3 +186,5 @@ class Step:
     switches: tuple[Switch, ...]   # live: what to send; dry: the intents to journal
     mem: Mem
     status: tuple[str, Mapping[str, object]]
+    ch: Optional[float] = None      # live: reassert the boiler CH setpoint; dry: the intent to journal
+    events: tuple[dict, ...] = ()   # journal lines: lockout, override and foreign-setpoint transitions

@@ -5,23 +5,28 @@ import pytest
 
 from src.hvac_controller import control, sense
 from src.hvac_controller.site import SITE, Site, Thermostat
-from src.hvac_controller.types import (CIRCUITS, ZONES, Band, Blind, Mem, Policy, Reading, Rule, Snapshot, Tier,
-                                       TstatObs)
+from src.hvac_controller.types import (CIRCUITS, ZONES, Band, Blind, BoilerObs, HeatPumpObs, Mem, Policy, Prices,
+                                       Reading, Rule, Snapshot, Tier, TstatObs)
 
 DAY = datetime(2026, 11, 30, 10, 0)  # Monday, Mid-peak
 NIGHT = datetime(2026, 11, 30, 2, 0)
+RATES = {"Off-peak": 0.18188, "Mid-peak": 0.18887, "On-peak": 0.60857}
+PRICES = Prices(RATES, 3.83, propane_default=True)
+HP_IDLE = HeatPumpObs(compressor=False, power_w=5.0)
+BOILER_ON = BoilerObs(power=True, ch_f=110.3)
 
 
 def reading(v: float, coldest: float | None = None) -> Reading:
     return Reading(v, v if coldest is None else coldest, Tier.ROOM, ("r",))
 
 
-def snap(now=DAY, temps=None, tou="Mid-peak", available=True, enabled=True, setpoint=None) -> Snapshot:
+def snap(now=DAY, temps=None, tou="Mid-peak", available=True, enabled=True, setpoint=None, hp=HP_IDLE,
+         boiler=BOILER_ON, prices=PRICES) -> Snapshot:
     """Thermostats show their hold unless `setpoint` says otherwise."""
     temps = {z: reading(69.0) for z in ZONES} | (temps or {})
-    obs = {c: TstatObs(True, "heat", setpoint or SITE.thermostats[c].hold_f, 68.0) if available
+    obs = {c: TstatObs(True, "heat", setpoint or SITE.thermostats[c].hold_f, 68.0, "idle") if available
            else TstatObs(False) for c in CIRCUITS}
-    return Snapshot(now, enabled, temps, obs, tou)
+    return Snapshot(now, enabled, temps, obs, tou, hp, boiler, prices)
 
 
 def run(s: Snapshot, mem: Mem = Mem(), dry_run=True, **kw):

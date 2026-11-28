@@ -85,18 +85,24 @@ class StatusPublisher:
 
 class Sender:
     """Live only. A Switch becomes heat mode, then the circuit's hold or call setpoint: the
-    thermostats reject both in one call."""
+    thermostats reject both in one call. The boiler gets only its commissioned CH setpoint."""
 
     def __init__(self, post: Post, site: Site, logger: logging.Logger):
         self._post, self._site, self._logger = post, site, logger
 
     async def send(self, s: Switch) -> None:
         t = self._site.thermostats[s.source]
-        for service, data in (("climate/set_hvac_mode", {"entity_id": t.entity, "hvac_mode": "heat"}),
-                              ("climate/set_temperature", {"entity_id": t.entity, "temperature": t.setpoint(s.on)})):
+        await self._calls((("climate/set_hvac_mode", {"entity_id": t.entity, "hvac_mode": "heat"}),
+                           ("climate/set_temperature", {"entity_id": t.entity, "temperature": t.setpoint(s.on)})))
+
+    async def send_ch(self, value: float) -> None:
+        await self._calls((("number/set_value", {"entity_id": self._site.boiler_ch, "value": value}),))
+
+    async def _calls(self, calls) -> None:
+        for service, data in calls:
             try:
                 await self._post(f"/services/{service}", data)
-            except Exception as e:  # the next tick reconciles against what the thermostat shows
+            except Exception as e:  # the next tick reconciles against what the device shows
                 self._logger.warning(f"service call failed: {service} {data}: {e!r}")
                 return
 
@@ -168,6 +174,8 @@ class ControllerApp:
             self._step = "send"
             for s in out.switches:
                 await self.sender.send(s)
+            if out.ch is not None:
+                await self.sender.send_ch(out.ch)
         self.mem = out.mem
         self._step = "persist"
         self._save()
@@ -185,7 +193,8 @@ class ControllerApp:
 
     def _journal(self, snap, out: Step) -> None:
         """One "intent" line per Switch: what it sets, the rule that won, and whether the thermostat
-        (driven by the live baseline while this runs dry) shows something else. A "sample" line
+        (driven by the live baseline while this runs dry) shows something else; one per boiler CH
+        reassert; one per lockout, boiler, override or foreign-setpoint transition. A "sample" line
         every SAMPLE_EVERY_MIN with every zone and circuit, for the shadow report."""
         t = snap.now.isoformat(timespec="seconds")
         lines = []
@@ -196,6 +205,11 @@ class ControllerApp:
                           "rule": w.rule.value, "why": w.why,
                           "observed": {"mode": obs.mode, "setpoint": obs.setpoint} if obs.available else None,
                           "diverges": not (obs.mode == "heat" and obs.setpoint == spec.setpoint(s.on))})
+        if out.ch is not None:
+            lines.append({"t": t, "kind": "intent", "dry_run": self.dry_run, "entity": self.site.boiler_ch,
+                          "value": out.ch, "observed": snap.boiler.ch_f, "rule": "boiler.reassert_ch",
+                          "why": f"readback {snap.boiler.ch_f} F, commissioned {out.ch} F"})
+        lines += [{**e, "dry_run": self.dry_run} for e in out.events]
         if self._last_sample is None or (snap.now - self._last_sample).total_seconds() >= SAMPLE_EVERY_MIN * 60:
             self._last_sample = snap.now
             lines.append({"t": t, "kind": "sample", **out.status[1],
