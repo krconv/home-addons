@@ -5,8 +5,8 @@ import logging
 import pytest
 
 from src import leds_app, zigbee
-from src.leds_app import (EFFECTS, OFF, LedsApp, Look, Request, Setting, indicator,
-                          inovelli_color, interleave, look_for, notification,
+from src.leds_app import (EFFECTS, OFF, LedsApp, Look, Request, Setting, chunks,
+                          desired_groups, indicator, inovelli_color, look_for, notification,
                           notification_payloads, room_of)
 
 FACTORY = indicator(OFF, 0)
@@ -22,47 +22,103 @@ def device(name, base="zigbee2mqtt-a", ieee=None, model="VZM31-SN", manufacturer
     )
 
 
-class FakeMqtt:
-    """Records publishes; a set on a switch is echoed into its reported state, like Zigbee2MQTT."""
+class FakeZigbee:
+    """Devices and groups as the bridges report them; bridge requests are recorded and applied."""
 
-    def __init__(self, devices=()):
+    def __init__(self, devices):
+        self._devices_by_ieee = {d.ieee_address: d for d in devices}
+        self._groups_by_id = {}
+        self.requests = []
+
+    def add_group(self, base, name, members=()):
+        self._groups_by_id[f"{base[-1]}-{len(self._groups_by_id) + 1}"] = zigbee.ZigBeeGroup(
+            base_topic=base, id=len(self._groups_by_id) + 1, friendly_name=name,
+            members=sorted(members))
+
+    def group(self, base, name):
+        return next((g for g in self._groups_by_id.values()
+                     if g.base_topic == base and g.friendly_name == name), None)
+
+    def _ieee(self, device):
+        return next((i for i, d in self._devices_by_ieee.items() if d.friendly_name == device),
+                    zigbee.normalize_ieee(device))
+
+    async def create_group(self, base, name):
+        self.requests.append((base, "group/add", name, None))
+        self.add_group(base, name)
+
+    async def set_group_options(self, base, name, options):
+        self.requests.append((base, "group/options", name, options))
+
+    async def add_group_member(self, base, group, device):
+        self.requests.append((base, "group/members/add", group, device))
+        self.group(base, group).members.append(self._ieee(device))
+
+    async def remove_group_member(self, base, group, device):
+        self.requests.append((base, "group/members/remove", group, device))
+        self.group(base, group).members.remove(self._ieee(device))
+
+
+class FakeMqtt:
+    """Records publishes and models Zigbee2MQTT: a set on a switch is echoed into its reported
+    state; a set on a group changes the members but isn't reported until a get on the group."""
+
+    def __init__(self, devices, zb):
         self.published = []
         self.by_name = {d.friendly_name: d for d in devices}
+        self.actual = {d.friendly_name: dict(d.state.properties) for d in devices}
+        self.zb = zb
 
     def publish(self, topic, payload, qos=0, retain=False):
         self.published.append((topic, payload))
         parts = topic.split("/")
-        if len(parts) == 3 and parts[2] == "set" and parts[1] in self.by_name:
-            echo = {k: v for k, v in payload.items() if isinstance(v, int)}
-            self.by_name[parts[1]].state.properties.update(echo)
+        if len(parts) != 3:
+            return
+        base, name, verb = parts
+        ints = {k: v for k, v in payload.items() if isinstance(v, int)}
+        if name in self.by_name and verb == "set":
+            self.actual[name].update(ints)
+            self.by_name[name].state.properties.update(ints)
+        elif (group := self.zb.group(base, name)) is not None:
+            for ieee in group.members:
+                member = self.zb._devices_by_ieee[ieee].friendly_name
+                if verb == "set":
+                    self.actual[member].update(ints)
+                else:
+                    self.by_name[member].state.properties.update(
+                        {k: self.actual[member][k] for k in payload if k in self.actual[member]})
 
     def sets(self):
         return [(t.split("/")[1], p) for t, p in self.published if t.endswith("/set")]
+
+    def messages(self, base):
+        return [(t.split("/", 1)[1], p) for t, p in self.published if t.startswith(base + "/")]
 
     def clear(self):
         self.published.clear()
 
 
-class FakeZigbee:
-    def __init__(self, devices):
-        self._devices_by_ieee = {d.ieee_address: d for d in devices}
-
-
 @pytest.fixture(autouse=True)
 def fast(monkeypatch):
     monkeypatch.setattr(leds_app, "PACE_S", 0)
+    monkeypatch.setattr(leds_app, "GROUP_PACE_S", 0)
     monkeypatch.setattr(leds_app, "DEBOUNCE_S", 0)
 
 
 @pytest.fixture
 def make_app(tmp_path):
-    def make(devices, known=True):
+    def make(devices, known=True, groups=None):
         a = LedsApp(logger=logging.getLogger("test"), addon_config={}, app_config={},
                     state_file=str(tmp_path / "leds" / "notifications.json"),
                     indicator_file=str(tmp_path / "leds" / "indicator.json"))
-        a._mqtt = FakeMqtt(devices)
         a._zigbee = FakeZigbee(devices)
+        if groups == "desired":
+            groups = {k: v for k, v in desired_groups(a._switches()).items() if v}
+        for (base, name), members in (groups or {}).items():
+            a._zigbee.add_group(base, name, members)
+        a._mqtt = FakeMqtt(devices, a._zigbee)
         a._reconcile_task = None
+        a._groups_task = None
         if known:
             a.notifications = {d.ieee_address: None for d in devices}
         return a
@@ -74,11 +130,18 @@ def house():
             device("Nook Switch", base="zigbee2mqtt-b", ieee="0x3")]
 
 
+def network(per_network):
+    """Switches S00.. on zigbee2mqtt-a, then as many on zigbee2mqtt-b."""
+    return [device(f"S{i:02}", base="zigbee2mqtt-a" if i < per_network else "zigbee2mqtt-b",
+                   ieee=f"0x{i:02}") for i in range(2 * per_network)]
+
+
 async def settle(a):
     for _ in range(3):
         await asyncio.sleep(0)
-        if a._reconcile_task:
-            await a._reconcile_task
+        for task in (a._reconcile_task, a._groups_task):
+            if task:
+                await task
 
 
 def run(a, *steps):
@@ -168,10 +231,16 @@ def test_request_parse():
         Request.parse("x", {"effect": "disco"}, 0)
 
 
-def test_interleave_alternates_bridges():
-    a = [device(f"a{i}") for i in range(3)]
-    b = [device("b0", base="zigbee2mqtt-b")]
-    assert [d.friendly_name for d in interleave(a + b)] == ["a0", "b0", "a1", "a2"]
+def test_groups_split_by_global_index():
+    groups = desired_groups(network(2))
+    assert groups[("zigbee2mqtt-a", "leds_all")] == {"0x00", "0x01"}
+    assert groups[("zigbee2mqtt-b", "leds_even")] == {"0x02"}
+    assert groups[("zigbee2mqtt-b", "leds_odd")] == {"0x03"}
+
+
+def test_chunks_cap_keys_per_write():
+    assert [len(c) for c in chunks(FACTORY)] == [8, 8, 8, 8]
+    assert chunks({}) == []
 
 
 # The app.
@@ -199,14 +268,13 @@ def test_first_run_clears_notifications_once(make_app):
     assert saved == {"0x1": None, "0x2": None, "0x3": None}
 
 
-def test_solid_color_writes_only_changed_parameters_one_per_message(make_app):
+def test_without_groups_each_switch_gets_one_message_of_changed_parameters(make_app):
     a = make_app(house())
     run(a, lambda: a._set({"state": "ON", "effect": "solid", "color": {"h": 0, "s": 100},
                            "brightness": 33}))
-    sets = a._mqtt.sets()
-    assert len(sets) == 6
-    assert all(len(p) == 1 for _, p in sets)
-    assert {k for _, p in sets for k in p} == {"ledColorWhenOn", "ledColorWhenOff"}
+    assert sorted(a._mqtt.sets()) == [
+        (name, {"ledColorWhenOn": 0, "ledColorWhenOff": 0})
+        for name in ("Kitchen Switch A", "Kitchen Switch B", "Nook Switch")]
 
 
 def test_brightness_change_is_one_write_per_switch(make_app):
@@ -221,12 +289,13 @@ def test_animation_sets_indicator_then_notification_and_off_restores_both(make_a
     a = make_app(house())
     run(a, lambda: a._set({"state": "ON", "effect": "chase", "color": {"h": 120, "s": 100}}))
     nook = [p for n, p in a._mqtt.sets() if n == "Nook Switch"]
-    assert nook[0] == {"ledColorWhenOn": 85} and nook[-1]["led_effect"]["effect"] == "chase"
+    assert nook[0] == {"ledColorWhenOn": 85, "ledColorWhenOff": 85, "ledIntensityWhenOn": 100}
+    assert nook[1]["led_effect"]["effect"] == "chase" and len(nook) == 2
     a._mqtt.clear()
     run(a, lambda: a._set({"state": "OFF"}))
     nook = [p for n, p in a._mqtt.sets() if n == "Nook Switch"]
-    assert nook[0] == {"ledColorWhenOn": 170}
-    assert nook[-1]["led_effect"]["effect"] == "clear_effect" and len(nook) == 4
+    assert nook[0] == {"ledColorWhenOn": 170, "ledColorWhenOff": 170, "ledIntensityWhenOn": 33}
+    assert nook[1]["led_effect"]["effect"] == "clear_effect" and len(nook) == 2
 
 
 def test_room_request_overrides_house_and_release_restores_it(make_app):
@@ -349,7 +418,9 @@ def test_restart_with_nothing_reported_sends_nothing(make_app):
 def test_without_saved_values_unreported_parameters_are_written(make_app):
     a = make_app([device("Nook Switch", ieee="0x3", props={})])
     run(a, lambda: a._schedule_reconcile(0))
-    assert len(a._mqtt.sets()) == len(FACTORY)
+    sets = a._mqtt.sets()
+    assert [len(p) for _, p in sets] == [8, 8, 8, 8]
+    assert {k: v for _, p in sets for k, v in p.items()} == FACTORY
 
 
 def test_a_report_overrides_the_saved_value(make_app):
@@ -367,3 +438,140 @@ def test_unreadable_indicator_file_is_ignored(make_app):
     open(a.indicator_file, "w").write("{not json")
     a._load_sent()
     assert a.sent == {}
+
+
+# Groups.
+
+def test_house_color_change_goes_to_groups_then_reads_back(make_app):
+    a = make_app(network(3), groups="desired")
+    run(a, lambda: a._set({"state": "ON", "color": {"h": 0, "s": 100}}))
+    red = {"ledColorWhenOn": 0, "ledColorWhenOff": 0, "ledIntensityWhenOn": 100}
+    for base in ("zigbee2mqtt-a", "zigbee2mqtt-b"):
+        assert a._mqtt.messages(base) == [
+            ("leds_all/set", red),
+            ("leds_all/get", {k: "" for k in red}),
+        ]
+    assert all(d.state.properties["ledColorWhenOn"] == 0 for d in a._switches())
+    a._mqtt.clear()
+    a.written.clear()
+    run(a, lambda: a._schedule_reconcile(0))
+    assert a._mqtt.published == []
+
+
+def test_a_group_with_the_wrong_members_is_not_used(make_app):
+    a = make_app(network(3), groups="desired")
+    a._zigbee.group("zigbee2mqtt-a", "leds_all").members.remove("0x02")
+    run(a, lambda: a._set({"state": "ON", "color": {"h": 0, "s": 100}}))
+    assert sorted(n for n, _ in a._mqtt.messages("zigbee2mqtt-a")) == ["S00/set", "S01/set", "S02/set"]
+    assert [n for n, _ in a._mqtt.messages("zigbee2mqtt-b")] == ["leds_all/set", "leds_all/get"]
+
+
+def test_a_room_request_keeps_its_keys_off_that_networks_group(make_app):
+    a = make_app(network(3), groups="desired")
+    run(a, lambda: (a.request("health", {"switches": ["S00"], "color": 85}),
+                    a._set({"state": "ON", "color": {"h": 0, "s": 100}})))
+    a_msgs = a._mqtt.messages("zigbee2mqtt-a")
+    assert a_msgs[0] == ("leds_all/set", {"ledIntensityWhenOn": 100})
+    assert ("S00/set", {"ledColorWhenOn": 85, "ledColorWhenOff": 85}) in a_msgs
+    assert ("S01/set", {"ledColorWhenOn": 0, "ledColorWhenOff": 0}) in a_msgs
+    assert [n for n, _ in a._mqtt.messages("zigbee2mqtt-b")] == ["leds_all/set", "leds_all/get"]
+    assert [a._current(d)["ledColorWhenOn"] for d in a._switches()] == [85] + [0] * 5
+
+
+def test_alternate_uses_even_and_odd_groups(make_app):
+    a = make_app(network(6), groups="desired")
+    run(a, lambda: a._set({"state": "ON", "effect": "christmas_alternate"}))
+    for base in ("zigbee2mqtt-a", "zigbee2mqtt-b"):
+        sets = [(n, p) for n, p in a._mqtt.messages(base) if n.endswith("/set")]
+        assert sets == [("leds_all/set", {"ledIntensityWhenOn": 100}),
+                        ("leds_even/set", {"ledColorWhenOn": 0, "ledColorWhenOff": 0}),
+                        ("leds_odd/set", {"ledColorWhenOn": 85, "ledColorWhenOff": 85})]
+    assert [a._current(d)["ledColorWhenOn"] for d in a._switches()] == [0, 85] * 6
+
+
+def test_checker_writes_per_led_colors_to_even_and_odd_in_chunks(make_app):
+    a = make_app(network(6), groups="desired")
+    run(a, lambda: a._set({"state": "ON", "effect": "christmas_checker"}))
+    sets = [(n, len(p)) for n, p in a._mqtt.messages("zigbee2mqtt-a") if n.endswith("/set")]
+    assert sets == [("leds_all/set", 3), ("leds_even/set", 8), ("leds_even/set", 6),
+                    ("leds_odd/set", 8), ("leds_odd/set", 6)]
+    gets = [n for n, _ in a._mqtt.messages("zigbee2mqtt-a") if n.endswith("/get")]
+    assert len(gets) == 5
+    look = look_for("christmas_checker", 0, 100)
+    assert all(a._current(d) == indicator(look, i) for i, d in enumerate(a._switches()))
+
+
+def test_animation_indicator_writes_precede_every_animation(make_app):
+    a = make_app(network(6), groups="desired")
+    run(a, lambda: (a.request("one", {"switches": ["S07"], "effect": "pulse", "color": 42}),
+                    a._set({"state": "ON", "effect": "christmas_chase"})))
+    for base in ("zigbee2mqtt-a", "zigbee2mqtt-b"):
+        msgs = a._mqtt.messages(base)
+        effects = [i for i, (_, p) in enumerate(msgs) if "led_effect" in p]
+        writes = [i for i, (_, p) in enumerate(msgs) if "led_effect" not in p]
+        assert effects and max(writes) < min(effects)
+    assert ("leds_even/set", {"led_effect": {"effect": "chase", "color": 0, "level": 100,
+                                             "duration": 255}}) in a._mqtt.messages("zigbee2mqtt-a")
+    assert ("S07/set", {"led_effect": {"effect": "pulse", "color": 42, "level": 100,
+                                       "duration": 255}}) in a._mqtt.messages("zigbee2mqtt-b")
+
+
+def test_a_key_fewer_than_group_min_switches_need_goes_unicast(make_app):
+    a = make_app(network(3), groups="desired")
+    for ieee in ("0x00", "0x01"):
+        a._zigbee._devices_by_ieee[ieee].state.properties["ledColorWhenOn"] = 42
+    run(a, lambda: a._schedule_reconcile(0))
+    assert sorted(a._mqtt.sets()) == [("S00", {"ledColorWhenOn": 170}),
+                                      ("S01", {"ledColorWhenOn": 170})]
+
+
+def test_missing_groups_are_created_disabled_before_their_first_member(make_app):
+    a = make_app(network(3))
+    run(a, a._schedule_group_maintenance)
+    reqs = [r for r in a._zigbee.requests if r[0] == "zigbee2mqtt-a" and r[2] == "leds_odd"]
+    assert reqs == [
+        ("zigbee2mqtt-a", "group/add", "leds_odd", None),
+        ("zigbee2mqtt-a", "group/options", "leds_odd",
+         {"homeassistant": {"light": {"enabled_by_default": False}}}),
+        ("zigbee2mqtt-a", "group/members/add", "leds_odd", "S01"),
+    ]
+    desired = {k: v for k, v in desired_groups(a._switches()).items() if v}
+    assert a._usable_groups(a._switches()) == desired
+    a._zigbee.requests.clear()
+    run(a, a._schedule_group_maintenance)
+    assert a._zigbee.requests == []
+
+
+def test_wrong_members_are_fixed_and_other_groups_left_alone(make_app):
+    a = make_app(network(3), groups="desired")
+    gone = "00:00:00:00:00:00:00:99"
+    a._zigbee.group("zigbee2mqtt-a", "leds_all").members.append(gone)
+    a._zigbee.group("zigbee2mqtt-b", "leds_odd").members.remove("0x05")
+    a._zigbee.add_group("zigbee2mqtt-a", "a-1", ["0x00", gone])
+    run(a, a._schedule_group_maintenance)
+    assert a._zigbee.requests == [
+        ("zigbee2mqtt-a", "group/members/remove", "leds_all", "0x0000000000000099"),
+        ("zigbee2mqtt-b", "group/members/add", "leds_odd", "S05"),
+    ]
+    assert a._zigbee.group("zigbee2mqtt-a", "a-1").members == sorted(["0x00", gone])
+    assert a._usable_groups(a._switches()) == desired_groups(a._switches())
+
+
+def test_bridge_groups_are_parsed_with_normalized_members_and_replaced():
+    cls = next(c.cell_contents for c in zigbee.ZigBeeClient.__closure__
+               if isinstance(c.cell_contents, type))
+    c = cls.__new__(cls)
+    c.logger = logging.getLogger("test")
+    c._groups_by_id = {"b-1": zigbee.ZigBeeGroup(base_topic="zigbee2mqtt-b", id=1, friendly_name="x")}
+    c._groups_listeners = []
+    seen = []
+    c.add_groups_listener(seen.append)
+    on_groups = c._on_groups_received("zigbee2mqtt-a", asyncio.Event())
+    on_groups("zigbee2mqtt-a/bridge/groups", json.dumps([{"id": 1, "friendly_name": "old", "members": []}]))
+    on_groups("zigbee2mqtt-a/bridge/groups", json.dumps([{
+        "id": 7, "friendly_name": "leds_all", "scenes": [],
+        "members": [{"ieee_address": "0x00124B0012345678", "endpoint": 1},
+                    {"ieee_address": "0x00124B0012345678", "endpoint": 2}]}]))
+    assert sorted(c._groups_by_id) == ["a-7", "b-1"]
+    assert c._groups_by_id["a-7"].members == ["00:12:4b:00:12:34:56:78"]
+    assert seen == ["zigbee2mqtt-a", "zigbee2mqtt-a"]

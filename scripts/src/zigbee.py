@@ -42,6 +42,13 @@ class ZigBeeGroup(pydantic.BaseModel):
     base_topic: str
     id: int
     friendly_name: str
+    members: list[str] = pydantic.Field(default_factory=list)  # IEEE addresses
+
+
+def normalize_ieee(ieee: str) -> str:
+    """Zigbee2MQTT's "0x00124b..." to this module's "00:12:4b:..." form."""
+    ieee = ieee.replace("0x", "").lower()
+    return ":".join(ieee[i : i + 2] for i in range(0, len(ieee), 2))
 
 
 @utils.singleton
@@ -57,12 +64,14 @@ class ZigBeeClient:
     _devices_ieees_by_friendly_name: dict[str, str]
     _groups_by_id: dict[str, ZigBeeGroup]
     _state_listeners: list[typing.Callable[[ZigBeeDevice, dict], None]]
+    _groups_listeners: list[typing.Callable[[str], None]]
 
     def __init__(self, logger: logging.Logger, addon_config: dict):
         self.logger = logger
         self.addon_config = addon_config
         self._base_topics = addon_config["zigbee_base_topics"]
         self._state_listeners = []
+        self._groups_listeners = []
 
     async def initialize(self) -> None:
         """Initialize the app and its components."""
@@ -121,8 +130,7 @@ class ZigBeeClient:
                 for device in data:
                     ieee = device.get("ieee_address")
                     if ieee:
-                        ieee = ieee.replace("0x", "").lower()
-                        ieee = ":".join(ieee[i : i + 2] for i in range(0, len(ieee), 2))
+                        ieee = normalize_ieee(ieee)
                         if ieee in self._devices_by_ieee:
                             for key, value in device.items():
                                 self._devices_by_ieee[ieee].base_topic = base_topic
@@ -150,13 +158,31 @@ class ZigBeeClient:
             """Callback for receiving devices from MQTT."""
             try:
                 data = json.loads(payload)
+                # The retained list is complete, so a group missing from it was removed.
+                groups = {
+                    key: group
+                    for key, group in self._groups_by_id.items()
+                    if group.base_topic != base_topic
+                }
                 for group in data:
-                    self._groups_by_id[f"{base_topic[-1]}-{group['id']}"] = ZigBeeGroup(
-                        base_topic=base_topic, **group
+                    groups[f"{base_topic[-1]}-{group['id']}"] = ZigBeeGroup(
+                        base_topic=base_topic,
+                        id=group["id"],
+                        friendly_name=group["friendly_name"],
+                        members=sorted(
+                            {normalize_ieee(m["ieee_address"]) for m in group.get("members", [])}
+                        ),
                     )
+                self._groups_by_id = groups
                 event.set()
             except json.JSONDecodeError as e:
                 self.logger.error(f"Error decoding JSON from {topic}: {e}")
+                return
+            for listener in self._groups_listeners:
+                try:
+                    listener(base_topic)
+                except Exception as e:
+                    self.logger.error(f"Error in groups listener for {base_topic}: {e}")
 
         return callback
 
@@ -197,6 +223,13 @@ class ZigBeeClient:
         Called from the MQTT client thread, not the asyncio loop.
         """
         self._state_listeners.append(callback)
+
+    def add_groups_listener(self, callback: typing.Callable[[str], None]) -> None:
+        """Register a callback invoked with the base topic whenever its group list is published.
+
+        Called from the MQTT client thread, not the asyncio loop.
+        """
+        self._groups_listeners.append(callback)
 
     def get_device_by_ieee(self, ieee: str) -> ZigBeeDevice:
         """Get a ZigBee device by its IEEE address."""
@@ -402,26 +435,50 @@ class ZigBeeClient:
         )
 
     async def add_to_group(self, device: ZigBeeDevice, group: ZigBeeGroup) -> bool:
+        return await self.add_group_member(
+            device.base_topic, group.friendly_name, device.friendly_name
+        )
+
+    async def create_group(self, base_topic: str, name: str) -> bool:
         return await self._send_bridge_request(
-            device.base_topic,
-            "group/members/add",
-            {
-                "group": group.friendly_name,
-                "device": device.friendly_name,
-            },
+            base_topic, "group/add", {"friendly_name": name}
+        )
+
+    async def set_group_options(self, base_topic: str, name: str, options: dict) -> bool:
+        return await self._send_bridge_request(
+            base_topic, "group/options", {"id": name, "options": options}
+        )
+
+    async def add_group_member(self, base_topic: str, group: str, device: str) -> bool:
+        """`device` is a friendly name or a "0x..." IEEE address."""
+        return await self._send_bridge_request(
+            base_topic, "group/members/add", {"group": group, "device": device}
+        )
+
+    async def remove_group_member(self, base_topic: str, group: str, device: str) -> bool:
+        """`device` is a friendly name or a "0x..." IEEE address."""
+        return await self._send_bridge_request(
+            base_topic, "group/members/remove", {"group": group, "device": device}
         )
 
     async def _send_bridge_request(
         self, base_topic: str, topic: str, payload: dict
     ) -> bool:
+        loop = asyncio.get_running_loop()
         for attempt in range(3):
             responded = asyncio.Event()
             transaction = random.randint(1000, 9999)
 
-            def on_response(topic: str, payload: str):
-                data = json.loads(payload)
-                if data.get("transaction") == transaction:
-                    responded.set()
+            def on_response(response_topic: str, response: str):
+                data = json.loads(response)
+                if data.get("transaction") != transaction:
+                    return
+                if data.get("status") == "error":
+                    self.logger.warning(
+                        f"Zigbee2MQTT {base_topic} {topic} {payload} failed: {data.get('error')}"
+                    )
+                # Runs on the MQTT client thread; Event.set alone wouldn't wake the loop.
+                loop.call_soon_threadsafe(responded.set)
 
             self._mqtt.subscribe(
                 f"{base_topic}/bridge/response/{topic}",
