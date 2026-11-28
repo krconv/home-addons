@@ -23,8 +23,9 @@ A look is drawn with two of the switch's own features:
 
 The reconcile loop writes only what differs from what each switch last reported (or was just
 sent), restarts from the top on every change, and runs every 10 minutes to put back anything
-that drifted. Zigbee2MQTT 2.4 can't send Inovelli's custom-cluster commands to a group, so
-every switch gets its own commands, paced so the mesh isn't flooded.
+that drifted. What many switches on a network need alike goes to a Zigbee group the app owns
+on each network (leds_all, leds_even, leds_odd); the rest goes to each switch, all its keys in
+one message.
 """
 from __future__ import annotations
 
@@ -34,6 +35,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field, replace
+from typing import Callable
 
 from . import mqtt, zigbee
 
@@ -43,7 +45,17 @@ STATE_FILE = "/data/leds/notifications.json"
 INDICATOR_FILE = "/data/leds/indicator.json"
 LED_MODELS = {"VZM30-SN", "VZM31-SN", "VZM35-SN", "VZM36"}
 LEDS_PER_BAR = 7
-PACE_S = 0.06  # per Zigbee command
+PACE_S = 0.06  # between unicast messages on one network
+# Group messages are broadcasts, and the coordinator's broadcast table is small.
+GROUP_PACE_S = 1.0
+# shortcut: fixed cap to keep a write in one Zigbee frame, raise it if Zigbee2MQTT logs show
+# bigger writes fragmenting fine, lower it if writes fail as too large.
+MAX_KEYS_PER_WRITE = 8
+# A group send must save at least this many unicast writes to be worth a broadcast.
+GROUP_MIN = 3
+# The app's groups on each network, in the order a reconcile tries them.
+GROUPS = ("leds_all", "leds_even", "leds_odd")
+GROUP_OPTIONS = {"homeassistant": {"light": {"enabled_by_default": False}}}
 DEBOUNCE_S = 0.5
 REJOIN_SETTLE_S = 5
 RESYNC_S = 600
@@ -277,16 +289,46 @@ def room_of(device: zigbee.ZigBeeDevice) -> str:
     return (head if sep else name).strip().lower()
 
 
-def interleave(devices: list) -> list:
-    """Alternate between bridges so both Zigbee networks work at the same time."""
-    by_base: dict[str, list] = {}
-    for d in devices:
-        by_base.setdefault(d.base_topic, []).append(d)
-    queues = list(by_base.values())
-    out = []
-    for i in range(max((len(q) for q in queues), default=0)):
-        out.extend(q[i] for q in queues if i < len(q))
-    return out
+def desired_groups(switches: list[zigbee.ZigBeeDevice]) -> dict[tuple[str, str], frozenset[str]]:
+    """The members (IEEEs) each app-owned group should have, by (base topic, group name).
+    Even/odd is the switch's index in `switches`, the parity `indicator()` and `notification()`
+    use. Every network with switches gets all three, empty if no switch belongs."""
+    members: dict[tuple[str, str], set[str]] = {}
+    for d in switches:
+        for name in GROUPS:
+            members.setdefault((d.base_topic, name), set())
+    for i, d in enumerate(switches):
+        members[(d.base_topic, "leds_all")].add(d.ieee_address)
+        members[(d.base_topic, "leds_even" if i % 2 == 0 else "leds_odd")].add(d.ieee_address)
+    return {key: frozenset(v) for key, v in members.items()}
+
+
+def chunks(params: dict) -> list[dict]:
+    items = list(params.items())
+    return [dict(items[i:i + MAX_KEYS_PER_WRITE]) for i in range(0, len(items), MAX_KEYS_PER_WRITE)]
+
+
+@dataclass
+class Message:
+    """One MQTT message of a reconcile, and what sending it does to the app's bookkeeping."""
+
+    topic: str
+    payload: dict
+    group: bool
+    applied: Callable[[], None] = lambda: None
+    touched: frozenset[str] = frozenset()  # switches (IEEEs) whose bar this changes
+
+
+@dataclass
+class Plan:
+    """What one switch should get in this reconcile; group sends remove from it."""
+
+    device: zigbee.ZigBeeDevice
+    target: dict[str, int]
+    needs: dict[str, int]  # indicator keys still to send
+    want: Notification
+    had: Notification | str
+    notify: bool  # its notification still to send
 
 
 @dataclass
@@ -333,6 +375,11 @@ class LedsApp:
             self._mqtt.subscribe(f"{base}/bridge/event", self._on_bridge_event)
 
         _instance = self
+        self._groups_task: asyncio.Task | None = None
+        self._groups_dirty = False
+        self._zigbee.add_groups_listener(
+            lambda base: self._loop.call_soon_threadsafe(self._schedule_group_maintenance))
+        self._schedule_group_maintenance()
         self._schedule_reconcile(delay=DEBOUNCE_S)
         self._resync_task = asyncio.create_task(self._resync_forever())
 
@@ -450,45 +497,190 @@ class LedsApp:
         self._drop_expired(now)
         self._arm_next_expiry(now)
         switches = self._switches()
-        index = {d.ieee_address: i for i, d in enumerate(switches)}
-        changed = commands = 0
+        changed: set[str] = set()
+        counts = {"group": 0, "unicast": 0}
         try:
-            for device in interleave(switches):
-                ieee, i = device.ieee_address, index[device.ieee_address]
-                look = self._desired(device, now)
-                target = indicator(look, i)
-                # Remember what the switch reported too, so after a restart its values are known
-                # before it talks again.
-                reported = device.state.properties
-                known = self.sent.setdefault(ieee, {})
-                for k in target:
-                    if isinstance(reported.get(k), int):
-                        known[k] = reported[k]
-                current = self._current(device)
-                params = {k: v for k, v in target.items() if current.get(k) != v}
-                want = notification(look, i)
-                # Indicator first, so an animation never drops back to the old color. One key
-                # per message: Zigbee2MQTT's Inovelli converter applies only the first key of a
-                # multi-key set and drops the rest.
-                payloads = [{k: v} for k, v in params.items()]
-                payloads += notification_payloads(want, self.notifications.get(ieee, "unknown"))
-                if not payloads:
-                    continue
-                for payload in payloads:
-                    self._send(device, payload)
-                    await asyncio.sleep(PACE_S)
-                self.written.setdefault(ieee, {}).update(params)
-                self.sent.setdefault(ieee, {}).update(params)
-                self.notifications[ieee] = want
-                changed += 1
-                commands += len(payloads)
+            queues = self._plan(switches, now)
+            await asyncio.gather(*(self._drain(q, changed, counts) for q in queues.values()))
         finally:
             self._save_sent()
             if changed:
                 self._save_notifications()
                 self.logger.info(
-                    f"Updated LED bars on {changed} of {len(switches)} switches ({commands} commands)"
+                    f"Updated LED bars on {len(changed)} of {len(switches)} switches "
+                    f"({counts['group']} group, {counts['unicast']} unicast messages)"
                 )
+
+    def _plan(self, switches: list[zigbee.ZigBeeDevice], now: float) -> dict[str, list[Message]]:
+        """Every message this reconcile sends, by network, in order: indicator writes (groups,
+        their read-backs, then each switch) before any notification, so an animation always
+        starts on top of an indicator in its own color."""
+        plans: dict[str, Plan] = {}
+        for i, device in enumerate(switches):
+            ieee = device.ieee_address
+            look = self._desired(device, now)
+            target = indicator(look, i)
+            # Remember what the switch reported too, so after a restart its values are known
+            # before it talks again.
+            reported = device.state.properties
+            known = self.sent.setdefault(ieee, {})
+            for k in target:
+                if isinstance(reported.get(k), int):
+                    known[k] = reported[k]
+            current = self._current(device)
+            want, had = notification(look, i), self.notifications.get(ieee, "unknown")
+            plans[ieee] = Plan(device, target, {k: v for k, v in target.items() if current.get(k) != v},
+                               want, had, want != had)
+
+        groups = {key: [plans[ieee] for ieee in sorted(members)]
+                  for key, members in self._usable_groups(switches).items()}
+        writes: dict[str, list[Message]] = {d.base_topic: [] for d in switches}
+        reads: dict[str, list[Message]] = {d.base_topic: [] for d in switches}
+        effects: dict[str, list[Message]] = {d.base_topic: [] for d in switches}
+
+        for (base, name), members in groups.items():
+            # Every member must want the same value, so one room request keeps its keys off its
+            # network's leds_all.
+            # shortcut: all-members rule, add exclusion-by-unicast-after if room requests become common
+            payload = {
+                k: v for k, v in members[0].target.items()
+                if all(m.target[k] == v for m in members)
+                and sum(k in m.needs for m in members) >= GROUP_MIN
+            }
+            if not payload:
+                continue
+            touched = frozenset(m.device.ieee_address for m in members if payload.keys() & m.needs.keys())
+            for m in members:
+                for k in payload:
+                    m.needs.pop(k, None)
+            for chunk in chunks(payload):
+                writes[base].append(Message(f"{base}/{name}/set", chunk, True,
+                                            self._wrote(members, chunk), touched))
+                # Members don't report a group write; a group read makes each one report.
+                reads[base].append(Message(f"{base}/{name}/get", {k: "" for k in chunk}, True))
+        for p in plans.values():
+            for chunk in chunks(p.needs):
+                writes[p.device.base_topic].append(Message(
+                    f"{p.device.base_topic}/{p.device.friendly_name}/set", chunk, False,
+                    self._wrote([p], chunk), frozenset([p.device.ieee_address])))
+
+        for (base, name), members in groups.items():
+            want = members[0].want
+            pending = [m for m in members if m.notify]
+            if len(pending) < GROUP_MIN or any(m.want != want for m in members):
+                continue
+            had = "unknown" if any(m.had == "unknown" for m in pending) else pending[0].had
+            effects[base] += self._notify(f"{base}/{name}/set", True, members, want, had)
+        for p in plans.values():
+            if p.notify:
+                effects[p.device.base_topic] += self._notify(
+                    f"{p.device.base_topic}/{p.device.friendly_name}/set", False, [p], p.want, p.had)
+
+        return {base: writes[base] + reads[base] + effects[base] for base in writes}
+
+    def _notify(self, topic: str, group: bool, members: list[Plan], want: Notification,
+                had: Notification | str) -> list[Message]:
+        """Messages that put notification `want` on `members` (which had `had`)."""
+        touched = frozenset(m.device.ieee_address for m in members if m.notify)
+        for m in members:
+            m.notify = False
+
+        def applied() -> None:
+            for m in members:
+                self.notifications[m.device.ieee_address] = want
+
+        messages = [Message(topic, payload, group) for payload in notification_payloads(want, had)]
+        if messages:
+            messages[-1].applied, messages[-1].touched = applied, touched
+        return messages
+
+    def _wrote(self, members: list[Plan], params: dict[str, int]) -> Callable[[], None]:
+        def applied() -> None:
+            for m in members:
+                ieee = m.device.ieee_address
+                self.written.setdefault(ieee, {}).update(params)
+                self.sent.setdefault(ieee, {}).update(params)
+        return applied
+
+    async def _drain(self, queue: list[Message], changed: set[str], counts: dict[str, int]) -> None:
+        """Send one network's messages in order, paced."""
+        last_group = None
+        for n, message in enumerate(queue):
+            if n:
+                wait = PACE_S
+                if message.group and last_group is not None:
+                    wait = max(wait, last_group + GROUP_PACE_S - self._loop.time())
+                await asyncio.sleep(wait)
+            try:
+                self._mqtt.publish(message.topic, message.payload)
+            except Exception as e:  # one failed publish shouldn't stop the rest
+                self.logger.warning(f"LED command {message.topic} failed: {e}")
+                continue
+            if message.group:
+                last_group = self._loop.time()
+            message.applied()
+            changed |= message.touched
+            counts["group" if message.group else "unicast"] += 1
+
+    # Groups.
+
+    def _group_members(self) -> dict[tuple[str, str], frozenset[str]]:
+        """Current members of the app's groups as Zigbee2MQTT reports them."""
+        return {
+            (g.base_topic, g.friendly_name): frozenset(g.members)
+            for g in self._zigbee._groups_by_id.values() if g.friendly_name in GROUPS
+        }
+
+    def _usable_groups(self, switches: list[zigbee.ZigBeeDevice]
+                       ) -> dict[tuple[str, str], frozenset[str]]:
+        """Groups whose members are exactly what they should be, in GROUPS order per network.
+        Anything else (missing, mid-change) means unicast for those switches."""
+        current = self._group_members()
+        return {key: want for key, want in desired_groups(switches).items()
+                if want and current.get(key) == want}
+
+    def _schedule_group_maintenance(self) -> None:
+        if self._groups_task and not self._groups_task.done():
+            self._groups_dirty = True
+            return
+        self._groups_task = asyncio.create_task(self._maintain_groups_until_settled())
+
+    async def _maintain_groups_until_settled(self) -> None:
+        # Each change republishes the group list; go again once for whatever arrived meanwhile.
+        # Capped so a change Zigbee2MQTT never reflects can't loop forever.
+        for _ in range(3):
+            self._groups_dirty = False
+            try:
+                await self._maintain_groups()
+            except Exception as e:
+                self.logger.warning(f"LED group maintenance failed: {e}")
+            if not self._groups_dirty:
+                return
+
+    async def _maintain_groups(self) -> None:
+        """Create the app's groups and fix their membership. Membership changes cost a message
+        to each switch, so only what's wrong is sent."""
+        current = self._group_members()
+        names = {ieee: d.friendly_name for ieee, d in self._zigbee._devices_by_ieee.items()}
+        for (base, name), want in desired_groups(self._switches()).items():
+            have = current.get((base, name))
+            if have is None and not want:
+                continue
+            if have == want:
+                continue
+            self.logger.info(f"LED group {base}/{name}: {len(want - (have or frozenset()))} to add, "
+                             f"{len((have or frozenset()) - want)} to remove")
+            if have is None:
+                await self._zigbee.create_group(base, name)
+            if want and not have:
+                # Zigbee2MQTT makes a Home Assistant light for every group when it gets its
+                # first member; this option only takes effect if it's set before that.
+                await self._zigbee.set_group_options(base, name, GROUP_OPTIONS)
+            for ieee in sorted(want - (have or frozenset())):
+                await self._zigbee.add_group_member(base, name, names[ieee])
+            for ieee in sorted((have or frozenset()) - want):
+                device = names.get(ieee) or "0x" + ieee.replace(":", "")
+                await self._zigbee.remove_group_member(base, name, device)
 
     def _arm_next_expiry(self, now: float) -> None:
         expiries = [r.expires_at for r in self.requests.values() if r.expires_at]
@@ -497,17 +689,12 @@ class LedsApp:
 
     async def _resync_forever(self) -> None:
         """Compare against what the switches report, so anything that drifted (a change in the
-        Zigbee2MQTT UI, a missed write) is put back."""
+        Zigbee2MQTT UI, a missed write, a group membership change) is put back."""
         while True:
             await asyncio.sleep(RESYNC_S)
             self.written.clear()
+            self._schedule_group_maintenance()
             self._schedule_reconcile(delay=0)
-
-    def _send(self, device: zigbee.ZigBeeDevice, payload: dict) -> None:
-        try:
-            self._mqtt.publish(f"{device.base_topic}/{device.friendly_name}/set", payload)
-        except Exception as e:  # one failed publish shouldn't stop the rest
-            self.logger.warning(f"LED command to {device.friendly_name} failed: {e}")
 
     # House setting (the Home Assistant light).
 
