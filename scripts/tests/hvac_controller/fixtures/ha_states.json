@@ -1,0 +1,123 @@
+{
+ "captured_at": "2026-11-27T22:00:00-05:00",
+ "source": "2026-11-27",
+ "absent": [
+  "input_boolean.hvac_controller_enabled",
+  "input_number.propane_price",
+  "input_number.unitil_mid_peak_rate",
+  "input_number.unitil_off_peak_rate",
+  "input_number.unitil_on_peak_rate",
+  "sensor.living_room_eye_level_temperature",
+  "sensor.main_bedroom_eye_level_temperature",
+  "sensor.nook_eye_level_temperature",
+  "sensor.north_bedroom_eye_level_temperature",
+  "sensor.south_bedroom_eye_level_temperature",
+  "sensor.unitil_time_of_use_band"
+ ],
+ "states": [
+  {
+   "entity_id": "binary_sensor.heat_pump_compressor",
+   "state": "off",
+   "attributes": {},
+   "last_changed": "2026-11-27T14:58:37.981262-05:00",
+   "last_updated": "2026-11-27T14:58:37.981262-05:00",
+   "last_reported": "2026-11-27T14:58:37.981262-05:00"
+  },
+  {
+   "entity_id": "climate.basement",
+   "state": "heat",
+   "attributes": {
+    "current_temperature": 70,
+    "temperature": 85,
+    "hvac_action": "heating"
+   },
+   "last_changed": "2026-11-26T19:06:33.890377-05:00",
+   "last_updated": "2026-11-27T21:46:54.842990-05:00",
+   "last_reported": "2026-11-27T21:46:54.842990-05:00"
+  },
+  {
+   "entity_id": "climate.east_wing",
+   "state": "heat",
+   "attributes": {
+    "current_temperature": 71,
+    "temperature": 64,
+    "hvac_action": "fan"
+   },
+   "last_changed": "2026-11-27T20:00:30.699164-05:00",
+   "last_updated": "2026-11-27T21:09:17.858955-05:00",
+   "last_reported": "2026-11-27T21:09:17.858955-05:00"
+  },
+  {
+   "entity_id": "climate.first_floor",
+   "state": "heat",
+   "attributes": {
+    "current_temperature": 71,
+    "temperature": 85,
+    "hvac_action": "heating"
+   },
+   "last_changed": "2026-11-26T19:06:33.895116-05:00",
+   "last_updated": "2026-11-27T21:46:54.845406-05:00",
+   "last_reported": "2026-11-27T21:46:54.845406-05:00"
+  },
+  {
+   "entity_id": "climate.west_wing",
+   "state": "heat",
+   "attributes": {
+    "current_temperature": 70,
+    "temperature": 85,
+    "hvac_action": "heating"
+   },
+   "last_changed": "2026-11-26T19:06:33.903034-05:00",
+   "last_updated": "2026-11-27T21:46:54.849422-05:00",
+   "last_reported": "2026-11-27T21:46:54.849422-05:00"
+  },
+  {
+   "entity_id": "input_select.airthings_location",
+   "state": "Nook",
+   "attributes": {},
+   "last_changed": "2026-11-27T00:00:00-05:00",
+   "last_updated": "2026-11-27T00:00:00-05:00",
+   "last_reported": "2026-11-27T00:00:00-05:00"
+  },
+  {
+   "entity_id": "number.boiler_heating_setpoint",
+   "state": "110.3",
+   "attributes": {},
+   "last_changed": "2026-11-27T11:24:17.008217-05:00",
+   "last_updated": "2026-11-27T11:24:17.008217-05:00",
+   "last_reported": "2026-11-27T11:24:17.008217-05:00"
+  },
+  {
+   "entity_id": "sensor.dining_room_temperature",
+   "state": "70.7",
+   "attributes": {},
+   "last_changed": "2026-11-27T21:46:20.199893-05:00",
+   "last_updated": "2026-11-27T21:46:20.199893-05:00",
+   "last_reported": "2026-11-27T21:46:20.199893-05:00"
+  },
+  {
+   "entity_id": "sensor.home_power_monitor_heat_pump_power",
+   "state": "217.358734130859",
+   "attributes": {},
+   "last_changed": "2026-11-27T21:59:59.205138-05:00",
+   "last_updated": "2026-11-27T21:59:59.205138-05:00",
+   "last_reported": "2026-11-27T21:59:59.205138-05:00"
+  },
+  {
+   "entity_id": "sensor.weather_station_temperature",
+   "state": "43",
+   "attributes": {},
+   "last_changed": "2026-11-27T21:51:49.032034-05:00",
+   "last_updated": "2026-11-27T21:56:50.059485-05:00",
+   "last_reported": "2026-11-27T21:56:50.059485-05:00"
+  },
+  {
+   "entity_id": "switch.boiler_power",
+   "state": "off",
+   "attributes": {},
+   "last_changed": "2026-11-27T21:42:52.210291-05:00",
+   "last_updated": "2026-11-27T21:42:52.210291-05:00",
+   "last_reported": "2026-11-27T21:42:52.210291-05:00"
+  }
+ ]
+}
