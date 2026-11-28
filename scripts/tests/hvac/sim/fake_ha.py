@@ -29,17 +29,20 @@ class World:
     house: House
     unavailable: dict = field(default_factory=dict)   # entity -> [(start, end)]
     poll_phase: dict = field(default_factory=dict)     # entity -> minute offset 0..4
-    states: dict = field(default_factory=dict)         # entity -> {"state", "attributes", "last_updated"}
+    states: dict = field(default_factory=dict)         # entity -> {"state", "attributes", "last_*"}
     commands: list = field(default_factory=list)       # (t, service, data, ok)
     logs: list = field(default_factory=list)
 
     # --- HA state ------------------------------------------------------------
     def set(self, entity: str, state, **attributes) -> None:
         prev = self.states.get(entity)
+        now = self.now.replace(tzinfo=TZ).isoformat()
         if prev and prev["state"] == state and prev["attributes"] == attributes:
+            prev["last_reported"] = now
             return
-        self.states[entity] = {"state": state, "attributes": dict(attributes),
-                               "last_updated": self.now.replace(tzinfo=TZ).isoformat()}
+        changed = now if not prev or prev["state"] != state else prev["last_changed"]
+        self.states[entity] = {"state": state, "attributes": dict(attributes), "last_changed": changed,
+                               "last_updated": now, "last_reported": now}
 
     def is_unavailable(self, entity: str, t: Optional[datetime] = None) -> bool:
         t = t or self.now
