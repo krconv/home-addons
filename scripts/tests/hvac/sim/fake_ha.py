@@ -17,6 +17,7 @@ from .house import THERMOSTATS, House, round_half_up
 
 TZ = ZoneInfo("America/New_York")
 POLL_MIN = 5
+BOILER_CH = "number.boiler_heating_setpoint"
 
 
 class ServiceError(Exception):
@@ -105,6 +106,9 @@ class World:
         elif service == "select/select_option":
             h.erv_mode = data["option"]
             self.set(entity, data["option"])
+        elif service == "number/set_value" and entity == BOILER_CH:
+            # The board stores 0.5 C steps.
+            h.ch_setpoint = round((round((float(data["value"]) - 32) / 1.8 * 2) / 2) * 1.8 + 32, 1)
         elif service in ("automation/turn_on", "automation/turn_off"):
             self.set(entity, "on" if service.endswith("on") else "off")
         else:

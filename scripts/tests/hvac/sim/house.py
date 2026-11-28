@@ -59,6 +59,8 @@ class Params:
     casing_frac: float = 0.03        # boiler casing/standby loss share of firing output, to BASEMENT air
     ua_pipe: float = 40.0            # BTU/h·°F near-boiler piping + manifolds, to BASEMENT air
     dhw_rate: float = 60000.0        # BTU/h burner output during a DHW draw
+    dhw_pauses_ch: bool = False      # a DHW draw takes the burner from the zone loops (CONTEXT "DHW interrupts CH")
+    ch_approach_f: float = 5.0       # loop water runs at most this far under the CH setpoint
     ua_share: tuple = (("EAST", 0.28), ("WEST", 0.28), ("FIRST", 0.32), ("BASEMENT", 0.12))
     aperture: tuple = (("EAST", 5.0), ("WEST", 5.0), ("FIRST", 8.0), ("BASEMENT", 1.0), ("GARAGE", 2.0))  # BTU/h per W/m²
     # multiplies a floor's emitter UA and its floor-to-air conductance
@@ -145,6 +147,9 @@ class House:
         self.fan_running = True
         self.basement_incidental = 0.0
         self.dhw_active = False
+        self.boiler_power = True         # switch.boiler_power: off means the board ignores every call
+        self.ch_setpoint = 110.3         # number.boiler_heating_setpoint; a power cycle boots it to 99.5
+        self.ch_out = 0.0                # BTU/h into the zone loops and near-boiler piping, last step
         # replay hooks (sim/calibrate.py): observed actuators override the emulated ones
         self.forced_compressor: Optional[bool] = None
         self.forced_calls: dict = {}
@@ -168,6 +173,15 @@ class House:
             return GARAGE["c_air"] if kind == "air" else GARAGE["c_mass"]
         base = self.p.c_air_house if kind == "air" else self.p.c_mass_house
         return base * ZONE_SHARE[z]
+
+    def reboot_boiler(self) -> None:
+        self.ch_setpoint = 99.5
+
+    def _water(self, z) -> Optional[float]:
+        """Loop water temperature while the zone circulates, or None when the boiler adds no heat."""
+        if not self.boiler_power or (self.p.dhw_pauses_ch and self.dhw_active):
+            return None
+        return min(self._floor_params(z)[3], self.ch_setpoint - self.p.ch_approach_f)
 
     def _floor_params(self, z):
         p = self.p
@@ -258,14 +272,14 @@ class House:
                 q_air[lo] -= q
                 q_air[hi] += q
         loop_out = 0.0
-        circulating = [z for z, v in valves.items() if v]
-        for z in circulating:
-            c_f, ua_e, h_fa, tw = self._floor_params(z)
-            loop_out += ua_e * (tw - self.floor[z])
+        water = {z: self._water(z) for z, v in valves.items() if v}
+        heated = {z: tw for z, tw in water.items() if tw is not None}
+        for z, tw in heated.items():
+            loop_out += self._floor_params(z)[1] * (tw - self.floor[z])
         pipe = 0.0
-        if circulating:
-            tw_supply = max(self._floor_params(z)[3] for z in circulating)
-            pipe = p.ua_pipe * (tw_supply - self.air["BASEMENT"])
+        if heated:
+            pipe = p.ua_pipe * (max(heated.values()) - self.air["BASEMENT"])
+        self.ch_out = loop_out + pipe
         firing_out = loop_out + pipe + (p.dhw_rate if self.dhw_active else 0.0)
         self.burner = firing_out > 0
         self.basement_incidental = p.casing_frac * firing_out + pipe
@@ -277,8 +291,8 @@ class House:
             q_mass[z] += q
             if z in valves or z == "GARAGE":
                 c_f, ua_e, h_fa, tw = self._floor_params(z)
-                if valves.get(z):
-                    q_floor[z] += ua_e * (tw - self.floor[z])
+                if z in heated:
+                    q_floor[z] += ua_e * (heated[z] - self.floor[z])
                 q = h_fa * (self.floor[z] - self.air[z])
                 q_floor[z] -= q
                 q_air[z] += q
