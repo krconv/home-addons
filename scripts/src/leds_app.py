@@ -661,7 +661,7 @@ class LedsApp:
         """Create the app's groups and fix their membership. Membership changes cost a message
         to each switch, so only what's wrong is sent."""
         current = self._group_members()
-        names = {ieee: d.friendly_name for ieee, d in self._zigbee._devices_by_ieee.items()}
+        names = {d.ieee_address: d.friendly_name for d in self._zigbee._devices_by_ieee.values()}
         for (base, name), want in desired_groups(self._switches()).items():
             have = current.get((base, name))
             if have is None and not want:
@@ -679,7 +679,7 @@ class LedsApp:
             for ieee in sorted(want - (have or frozenset())):
                 await self._zigbee.add_group_member(base, name, names[ieee])
             for ieee in sorted((have or frozenset()) - want):
-                device = names.get(ieee) or "0x" + ieee.replace(":", "")
+                device = names.get(ieee, ieee)
                 await self._zigbee.remove_group_member(base, name, device)
 
     def _arm_next_expiry(self, now: float) -> None:

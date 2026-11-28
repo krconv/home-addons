@@ -26,7 +26,7 @@ class FakeZigbee:
     """Devices and groups as the bridges report them; bridge requests are recorded and applied."""
 
     def __init__(self, devices):
-        self._devices_by_ieee = {d.ieee_address: d for d in devices}
+        self._devices_by_ieee = {zigbee.normalize_ieee(d.ieee_address): d for d in devices}
         self._groups_by_id = {}
         self.requests = []
 
@@ -35,13 +35,16 @@ class FakeZigbee:
             base_topic=base, id=len(self._groups_by_id) + 1, friendly_name=name,
             members=sorted(members))
 
+    def device(self, ieee):
+        return self._devices_by_ieee[zigbee.normalize_ieee(ieee)]
+
     def group(self, base, name):
         return next((g for g in self._groups_by_id.values()
                      if g.base_topic == base and g.friendly_name == name), None)
 
     def _ieee(self, device):
-        return next((i for i, d in self._devices_by_ieee.items() if d.friendly_name == device),
-                    zigbee.normalize_ieee(device))
+        return next((d.ieee_address for d in self._devices_by_ieee.values()
+                     if d.friendly_name == device), device)
 
     async def create_group(self, base, name):
         self.requests.append((base, "group/add", name, None))
@@ -81,7 +84,7 @@ class FakeMqtt:
             self.by_name[name].state.properties.update(ints)
         elif (group := self.zb.group(base, name)) is not None:
             for ieee in group.members:
-                member = self.zb._devices_by_ieee[ieee].friendly_name
+                member = self.zb.device(ieee).friendly_name
                 if verb == "set":
                     self.actual[member].update(ints)
                 else:
@@ -355,7 +358,7 @@ def test_drift_is_put_back_on_resync(make_app):
     run(a, lambda: a._set({"state": "ON", "color": {"h": 0, "s": 100}}))
     a._mqtt.clear()
     # Someone changes a switch in the Zigbee2MQTT UI; the switch reports it.
-    a._zigbee._devices_by_ieee["0x2"].state.properties["ledColorWhenOn"] = 42
+    a._zigbee.device("0x2").state.properties["ledColorWhenOn"] = 42
     a.written.clear()
     run(a, lambda: a._schedule_reconcile(0))
     assert a._mqtt.sets() == [("Kitchen Switch B", {"ledColorWhenOn": 0})]
@@ -426,7 +429,7 @@ def test_without_saved_values_unreported_parameters_are_written(make_app):
 def test_a_report_overrides_the_saved_value(make_app):
     a = make_app(house())
     a.sent = {"0x1": {"ledColorWhenOn": 170}}
-    a._zigbee._devices_by_ieee["0x1"].state.properties["ledColorWhenOn"] = 42
+    a._zigbee.device("0x1").state.properties["ledColorWhenOn"] = 42
     run(a, lambda: a._schedule_reconcile(0))
     assert a._mqtt.sets() == [("Kitchen Switch A", {"ledColorWhenOn": 170})]
 
@@ -519,7 +522,7 @@ def test_animation_indicator_writes_precede_every_animation(make_app):
 def test_a_key_fewer_than_group_min_switches_need_goes_unicast(make_app):
     a = make_app(network(3), groups="desired")
     for ieee in ("0x00", "0x01"):
-        a._zigbee._devices_by_ieee[ieee].state.properties["ledColorWhenOn"] = 42
+        a._zigbee.device(ieee).state.properties["ledColorWhenOn"] = 42
     run(a, lambda: a._schedule_reconcile(0))
     assert sorted(a._mqtt.sets()) == [("S00", {"ledColorWhenOn": 170}),
                                       ("S01", {"ledColorWhenOn": 170})]
@@ -544,7 +547,7 @@ def test_missing_groups_are_created_disabled_before_their_first_member(make_app)
 
 def test_wrong_members_are_fixed_and_other_groups_left_alone(make_app):
     a = make_app(network(3), groups="desired")
-    gone = "00:00:00:00:00:00:00:99"
+    gone = "0x0000000000000099"
     a._zigbee.group("zigbee2mqtt-a", "leds_all").members.append(gone)
     a._zigbee.group("zigbee2mqtt-b", "leds_odd").members.remove("0x05")
     a._zigbee.add_group("zigbee2mqtt-a", "a-1", ["0x00", gone])
@@ -557,7 +560,7 @@ def test_wrong_members_are_fixed_and_other_groups_left_alone(make_app):
     assert a._usable_groups(a._switches()) == desired_groups(a._switches())
 
 
-def test_bridge_groups_are_parsed_with_normalized_members_and_replaced():
+def test_bridge_groups_are_parsed_and_replaced():
     cls = next(c.cell_contents for c in zigbee.ZigBeeClient.__closure__
                if isinstance(c.cell_contents, type))
     c = cls.__new__(cls)
@@ -573,5 +576,5 @@ def test_bridge_groups_are_parsed_with_normalized_members_and_replaced():
         "members": [{"ieee_address": "0x00124B0012345678", "endpoint": 1},
                     {"ieee_address": "0x00124B0012345678", "endpoint": 2}]}]))
     assert sorted(c._groups_by_id) == ["a-7", "b-1"]
-    assert c._groups_by_id["a-7"].members == ["00:12:4b:00:12:34:56:78"]
+    assert c._groups_by_id["a-7"].members == ["0x00124b0012345678"]
     assert seen == ["zigbee2mqtt-a", "zigbee2mqtt-a"]

@@ -42,7 +42,7 @@ class ZigBeeGroup(pydantic.BaseModel):
     base_topic: str
     id: int
     friendly_name: str
-    members: list[str] = pydantic.Field(default_factory=list)  # IEEE addresses
+    members: list[str] = pydantic.Field(default_factory=list)  # "0x..." like ZigBeeDevice.ieee_address
 
 
 def normalize_ieee(ieee: str) -> str:
@@ -170,7 +170,7 @@ class ZigBeeClient:
                         id=group["id"],
                         friendly_name=group["friendly_name"],
                         members=sorted(
-                            {normalize_ieee(m["ieee_address"]) for m in group.get("members", [])}
+                            {m["ieee_address"].lower() for m in group.get("members", [])}
                         ),
                     )
                 self._groups_by_id = groups
