@@ -9,7 +9,8 @@ from statistics import mean
 from typing import Mapping, Optional
 
 from .site import Site
-from .types import CIRCUITS, ZONES, Blind, Reading, Snapshot, Tier, TstatObs, Zone, ZoneTemp
+from .types import (CIRCUITS, ZONES, Blind, BoilerObs, HeatPumpObs, Prices, Reading, Snapshot, Tier, TstatObs, Zone,
+                    ZoneTemp)
 
 RawStates = Mapping[str, dict]   # entity_id -> REST state object
 MISSING = ("unavailable", "unknown", "", None)
@@ -25,6 +26,9 @@ def read(states: RawStates, now: datetime, site: Site) -> Snapshot:
         temps={z: fuse_zone(z, states, now, site, tstats) for z in ZONES},
         tstats=tstats,
         tou=tou if tou in TOU else None,
+        hp=heat_pump(states, now, site),
+        boiler=boiler(states, now, site),
+        prices=prices(states, site),
         outdoor_f=_float(_state(states.get(site.outdoor))),
     )
 
@@ -61,15 +65,44 @@ def _settled_airthings_room(states: RawStates, now: datetime, site: Site) -> Opt
 
 
 def numeric(st: Optional[dict], now: datetime, site: Site) -> Optional[float]:
-    """A plausible, fresh float, or None. Freshness uses last_reported when present, because
-    last_updated does not move while a value is constant."""
+    """A plausible, fresh temperature, or None."""
+    v = _fresh_float(st, now, site, site.limits.room_max_age_min)
+    return v if v is not None and site.limits.plausible_f[0] <= v <= site.limits.plausible_f[1] else None
+
+
+def heat_pump(states: RawStates, now: datetime, site: Site) -> HeatPumpObs:
+    lim = site.limits
+    comp = states.get(site.hp_compressor)
+    on = {"on": True, "off": False}.get(_state(comp)) if _is_fresh(comp, now, site, lim.hp_fresh_min) else None
+    power = _fresh_float(states.get(site.hp_power), now, site, lim.hp_fresh_min)
+    return HeatPumpObs(compressor=on, power_w=power if power is not None and power >= 0 else None)
+
+
+def boiler(states: RawStates, now: datetime, site: Site) -> BoilerObs:
+    return BoilerObs(power={"on": True, "off": False}.get(_state(states.get(site.boiler_power))),
+                     ch_f=_fresh_float(states.get(site.boiler_ch), now, site, site.boiler.fresh_min))
+
+
+def prices(states: RawStates, site: Site) -> Prices:
+    """A missing or non-positive helper drops its band (no economic switching there); a missing
+    propane helper falls back to the configured price, flagged."""
+    kwh = {b: v for b, e in site.rates.items() if (v := _float(_state(states.get(e)))) is not None and v > 0}
+    gal = _float(_state(states.get(site.propane_price)))
+    if gal is None or gal <= 0:
+        return Prices(kwh, site.economics.propane_default_gal, propane_default=True)
+    return Prices(kwh, gal, propane_default=False)
+
+
+def _fresh_float(st: Optional[dict], now: datetime, site: Site, max_min: float) -> Optional[float]:
     v = _float(_state(st))
-    if v is None or not site.limits.plausible_f[0] <= v <= site.limits.plausible_f[1]:
-        return None
-    seen = _time(st.get("last_reported") or st.get("last_updated"), site)
-    if seen is None or (now - seen).total_seconds() > site.limits.room_max_age_min * 60:
-        return None
-    return v
+    return v if v is not None and _is_fresh(st, now, site, max_min) else None
+
+
+def _is_fresh(st: Optional[dict], now: datetime, site: Site, max_min: float) -> bool:
+    """Freshness uses last_reported when present, because last_updated does not move while a
+    value is constant."""
+    seen = _time(st.get("last_reported") or st.get("last_updated"), site) if st else None
+    return seen is not None and (now - seen).total_seconds() <= max_min * 60
 
 
 def thermostat(st: Optional[dict]) -> TstatObs:
@@ -78,7 +111,7 @@ def thermostat(st: Optional[dict]) -> TstatObs:
     at = st.get("attributes") or {}
     sp = _float(at.get("temperature"))
     return TstatObs(available=True, mode=st["state"], setpoint=None if sp is None else int(round(sp)),
-                    reading=_float(at.get("current_temperature")))
+                    reading=_float(at.get("current_temperature")), action=at.get("hvac_action"))
 
 
 def _state(st: Optional[dict]):

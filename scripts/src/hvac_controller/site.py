@@ -7,7 +7,7 @@ from datetime import time
 from typing import Mapping, Optional
 from zoneinfo import ZoneInfo
 
-from .types import CIRCUITS, FLOOR_F, ZONES, Circuit, Zone
+from .types import CIRCUITS, FLOOR_F, ZONES, Circuit, TouBand, Zone
 
 # A thermostat holds within its 0.5 deg F hysteresis of a whole-degree setpoint.
 HOLD_MARGIN_F = 1.0
@@ -69,6 +69,31 @@ class Limits:
     plausible_f: tuple[float, float] = (40.0, 95.0)
     confirm_min: float = 7.0        # live: don't resend a setpoint the thermostat hasn't polled yet
     max_sends_per_hour: int = 4
+    hp_fresh_min: float = 5.0       # compressor and power evidence older than this is unknown
+    lockout_w: float = 500.0        # under this with a call and the compressor off is lockout evidence
+    lockout_min: float = 10.0       # ... continuously, before the heat pump counts as locked out
+    override_clear: time = time(4, 0)  # a manual override is honored until it reverts or this time
+
+
+@dataclass(frozen=True)
+class Boiler:
+    """One commissioned CH setpoint, no outdoor reset (CONTEXT "Radiant control direction"). The
+    board boots at 99.5 F after a power loss and works in 0.5 C steps, so 110.3 F is 43.5 C."""
+    ch_f: float = 110.3
+    tolerance_f: float = 1.0
+    fresh_min: float = 30.0         # a readback older than this proves nothing
+    reassert_min: float = 10.0
+
+
+@dataclass(frozen=True)
+class Economics:
+    """Cost per delivered MMBTU (CONTEXT "Energy prices and heat pump COP")."""
+    cop: float = 3.7                     # delivered, pooled; 10-90% 2.7-4.8
+    propane_default_gal: float = 3.83    # 10/15 and 10/22 fills, until input_number.propane_price exists
+    propane_btu_gal: float = 91_500.0
+    boiler_eff: float = 0.92
+    boiler_kwh_mmbtu: float = 16.0       # board and circulators at low fire: ~$3/MMBTU at off-peak rates
+    switch_margin: float = 0.10          # the idle source must be this much cheaper to take over
 
 
 @dataclass(frozen=True)
@@ -81,9 +106,19 @@ class Site:
     airthings_temp: str
     airthings_location: str
     outdoor: str
+    hp_compressor: str
+    hp_power: str
+    boiler_power: str
+    boiler_ch: str
+    rates: Mapping[TouBand, str]
+    propane_price: str
+    # Setpoints the live baseline (the hvac app) writes; anything else in dry run is someone else's.
+    baseline_setpoints: frozenset[int] = frozenset({64, 65, 66, 68, 70})
     tz: ZoneInfo = ZoneInfo("America/New_York")
     comfort: Comfort = Comfort()
     limits: Limits = field(default_factory=Limits)
+    boiler: Boiler = Boiler()
+    economics: Economics = Economics()
 
     def validate(self) -> None:
         if set(self.thermostats) != set(CIRCUITS) or set(self.zones) != set(ZONES):
@@ -99,7 +134,9 @@ class Site:
     def read_list(self) -> frozenset[str]:
         rooms = {r.eye_level for z in self.zones.values() for r in z.rooms if r.eye_level}
         return frozenset({t.entity for t in self.thermostats.values()} | rooms | {
-            self.enabled, self.tou_band, self.airthings_temp, self.airthings_location, self.outdoor})
+            self.enabled, self.tou_band, self.airthings_temp, self.airthings_location, self.outdoor,
+            self.hp_compressor, self.hp_power, self.boiler_power, self.boiler_ch, self.propane_price,
+            *self.rates.values()})
 
 
 SITE = Site(
@@ -126,4 +163,11 @@ SITE = Site(
     airthings_temp="sensor.dining_room_temperature",
     airthings_location="input_select.airthings_location",
     outdoor="sensor.weather_station_temperature",
+    hp_compressor="binary_sensor.heat_pump_compressor",
+    hp_power="sensor.home_power_monitor_heat_pump_power",
+    boiler_power="switch.boiler_power",
+    boiler_ch="number.boiler_heating_setpoint",
+    rates={"Off-peak": "input_number.unitil_off_peak_rate", "Mid-peak": "input_number.unitil_mid_peak_rate",
+           "On-peak": "input_number.unitil_on_peak_rate"},
+    propane_price="input_number.propane_price",
 )
