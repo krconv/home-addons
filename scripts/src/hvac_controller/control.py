@@ -10,6 +10,7 @@ from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Mapping
 
+from . import cost, equipment
 from .site import Site
 from .types import (CIRCUITS, FLOOR_F, RADIANT, SERVES, Band, Blind, Circuit, Mem, Policy, Reading, Rule,
                     Snapshot, Step, Switch, Want)
@@ -20,25 +21,46 @@ Wants = Mapping[Circuit, Want]
 def step(snap: Snapshot, mem: Mem, site: Site, dry_run: bool, policy: Policy = Policy(),
          honor_kill: bool = False) -> Step:
     mem = Mem.from_json(copy.deepcopy(mem.to_json()))
-    usable = {c: snap.tstats[c].available for c in CIRCUITS}
+    blocked, events = equipment.blocked(snap, mem, site)
     if honor_kill and not snap.enabled:
         want = {c: Want(False, Rule.KILL, "kill switch off: every thermostat to its hold") for c in CIRCUITS}
-        switches = () if mem.killed else tuple(Switch(c, False) for c in CIRCUITS if usable[c])
+        switches = () if mem.killed else tuple(Switch(c, False) for c in CIRCUITS if snap.tstats[c].available)
         mem.killed, mem.latch = True, {}
-        return Step(want, switches, mem, status(snap, want, mem, site, dry_run, policy, "disabled"))
+        return Step(want, switches, mem, status(snap, want, mem, site, dry_run, policy, "disabled", blocked),
+                    events=tuple(events))
     mem.killed = False
     slot = slot_key(snap.now, site)
     if any(mem.latch.get(c, {}).get("slot") != slot for c in CIRCUITS):
         latched = {c: (mem.latch.get(c, {}).get("on", False), mem.latch.get(c, {}).get("slots_on", 0))
                    for c in CIRCUITS}
-        fresh = wants(policy, snap, latched, usable, site)
+        mem.primary = primary(policy, snap, mem.primary.get("source", "HP"), blocked, site)
+        fresh = wants(policy, snap, latched, blocked, mem.primary["source"], site)
         mem.latch = {c: {"on": w.on, "rule": w.rule.value, "why": w.why, "slot": slot,
                          "slots_on": latched[c][1] + 1 if w.on and latched[c][0] else int(w.on)}
                      for c, w in fresh.items()}
     policy_wants = {c: Want(l["on"], Rule(l["rule"]), l["why"]) for c, l in mem.latch.items()}
-    want = guards(policy_wants, snap, mem, usable, site)
+    want = guards(policy_wants, snap, mem, blocked, site)
+    events += overrides(want, snap, mem, site, dry_run)
     switches = reconcile(want, snap, mem, site, dry_run)
-    return Step(want, switches, mem, status(snap, want, mem, site, dry_run, policy, "rules"))
+    ch = equipment.ch_setpoint(snap, mem, site)
+    return Step(want, switches, mem, status(snap, want, mem, site, dry_run, policy, "rules", blocked), ch,
+                tuple(events))
+
+
+def primary(policy: Policy, snap: Snapshot, running: str, blocked: Mapping[Circuit, str], site: Site) -> dict:
+    """Which source carries the house this slot. Availability first; price only on-peak, the one
+    band where the two are close; the running source keeps a near-tie."""
+    if "HP" in blocked:
+        return {"source": "RADIANT", "why": blocked["HP"]}
+    if "RAD_WEST" in blocked and "RAD_FIRST" in blocked:
+        return {"source": "HP", "why": f"radiant unusable: {blocked['RAD_WEST']}"}
+    if snap.tou != "On-peak":
+        return {"source": "HP", "why": f"{snap.tou or 'band unknown'}: the heat pump is cheapest"}
+    if policy.peak_primary != "COST":
+        return {"source": policy.peak_primary, "why": f"On-peak: policy says {policy.peak_primary}"}
+    src, why = cost.choose(cost.table(snap.prices, site.economics).get("On-peak"),
+                           "RADIANT" if running == "RADIANT" else "HP", site.economics.switch_margin)
+    return {"source": src, "why": f"On-peak: {why}"}
 
 
 def band_at(t: datetime, site: Site) -> Band:
@@ -52,9 +74,10 @@ def slot_key(t: datetime, site: Site) -> str:
 
 
 def wants(policy: Policy, snap: Snapshot, latch: Mapping[Circuit, tuple[bool, int]],
-          usable: Mapping[Circuit, bool], site: Site) -> dict[Circuit, Want]:
+          blocked: Mapping[Circuit, str], primary: str, site: Site) -> dict[Circuit, Want]:
     """The control law for this slot. Zones without a Reading are skipped; the guards own them."""
     lim, now = site.limits, snap.now
+    usable = {c: c not in blocked for c in CIRCUITS}
     temps = {z: t.value for z, t in snap.temps.items() if isinstance(t, Reading)}
     band = band_at(now, site)
 
@@ -65,11 +88,11 @@ def wants(policy: Policy, snap: Snapshot, latch: Mapping[Circuit, tuple[bool, in
     peak_start = datetime.combine(now.date(), site.comfort.peak_start)
     # Mid-peak only happens on non-holiday weekdays before On-peak, so the sensor alone says "soon".
     soon_peak = snap.tou == "Mid-peak" and now >= peak_start - timedelta(hours=policy.preheat_h)
-    radiant_primary = not usable["HP"] or (on_peak and policy.peak_primary == "RADIANT")
+    radiant_primary = primary == "RADIANT"
     hp_target = band.hi - lim.margin_f if soon_peak else lo_ahead(policy.recover_h) + lim.margin_f
 
-    out: dict[Circuit, Want] = {"HP": _hp(policy, temps, hp_target, soon_peak, on_peak, usable["HP"],
-                                          latch["HP"], lim.min_run_slots)}
+    out: dict[Circuit, Want] = {"HP": _hp(policy, temps, hp_target, soon_peak, radiant_primary,
+                                          blocked.get("HP"), latch["HP"], lim.min_run_slots)}
 
     rad_target = (lo_ahead(policy.radiant_lead_h) + lim.margin_f if radiant_primary
                   else hp_target - policy.backup_drop_f)
@@ -95,7 +118,7 @@ def wants(policy: Policy, snap: Snapshot, latch: Mapping[Circuit, tuple[bool, in
     for c in RADIANT:
         gap, z = short.get(c, (None, ""))
         if not usable[c]:
-            out[c] = Want(False, Rule.UNUSABLE, "thermostat unavailable")
+            out[c] = Want(False, Rule.UNUSABLE, blocked[c])
         elif gap is None:
             out[c] = Want(False, Rule.SATISFIED, "no zone reading")
         elif c == chosen and c in running and gap <= 0:
@@ -110,12 +133,12 @@ def wants(policy: Policy, snap: Snapshot, latch: Mapping[Circuit, tuple[bool, in
     return out
 
 
-def _hp(policy: Policy, temps: Mapping[str, float], target: float, soon_peak: bool, on_peak: bool,
-        usable: bool, latch: tuple[bool, int], min_run: int) -> Want:
-    if not usable:
-        return Want(False, Rule.UNUSABLE, "east thermostat unavailable: radiant is primary")
-    if on_peak and policy.peak_primary == "RADIANT":
-        return Want(False, Rule.PEAK_YIELDS, "On-peak: radiant holds the band")
+def _hp(policy: Policy, temps: Mapping[str, float], target: float, soon_peak: bool, radiant_primary: bool,
+        blocked: str | None, latch: tuple[bool, int], min_run: int) -> Want:
+    if blocked:
+        return Want(False, Rule.UNUSABLE, f"{blocked}: radiant is primary")
+    if radiant_primary:
+        return Want(False, Rule.PEAK_YIELDS, "On-peak: radiant is cheaper and holds the band")
     zs = {z: temps[z] for z in SERVES["HP"] if z in temps}
     if not zs:
         return Want(False, Rule.SATISFIED, "no zone reading")
@@ -130,10 +153,10 @@ def _hp(policy: Policy, temps: Mapping[str, float], target: float, soon_peak: bo
     return Want(False, Rule.SATISFIED, f"{z} {zs[z]:.1f} at or over {target:.1f}")
 
 
-def guards(want: Wants, snap: Snapshot, mem: Mem, usable: Mapping[Circuit, bool], site: Site
+def guards(want: Wants, snap: Snapshot, mem: Mem, blocked: Mapping[Circuit, str], site: Site
            ) -> dict[Circuit, Want]:
     """Strongest first: blind (leave it to the thermostat), floor (coldest room near 64 turns on
-    every usable circuit that serves it, on-peak or not), hi stop."""
+    every usable circuit that serves it, on-peak or not), unusable mid-slot, hi stop."""
     lim = site.limits
     engage, release = FLOOR_F + lim.floor_lead_f, FLOOR_F + lim.floor_lead_f + lim.floor_release_f
     floor = set(mem.floor)
@@ -152,8 +175,10 @@ def guards(want: Wants, snap: Snapshot, mem: Mem, usable: Mapping[Circuit, bool]
         hot = [z for z, t in readings.items() if t.value >= hi]
         if not readings:
             out[c] = Want(False, Rule.BLIND, f"{'/'.join(temps)} blind: thermostat hold keeps the floor")
-        elif cold and usable[c]:
+        elif cold and c not in blocked:
             out[c] = Want(True, Rule.FLOOR, f"{cold[0]} coldest room {readings[cold[0]].coldest:.1f}")
+        elif c in blocked and out[c].on:
+            out[c] = Want(False, Rule.UNUSABLE, blocked[c])
         elif hot and out[c].on:
             out[c] = Want(False, Rule.HI_STOP, f"{hot[0]} {readings[hot[0]].value:.1f} at or over {hi:.1f}")
     return out
@@ -173,7 +198,7 @@ def reconcile(want: Wants, snap: Snapshot, mem: Mem, site: Site, dry_run: bool) 
             mem.intent[c] = cur
             continue
         t = snap.tstats[c]
-        if not t.available or (t.mode == "heat" and t.setpoint == site.thermostats[c].setpoint(w.on)):
+        if not t.available or c in mem.override or (t.mode == "heat" and t.setpoint == site.thermostats[c].setpoint(w.on)):
             continue
         sent = [s for s in mem.sent.get(c, []) if now - datetime.fromisoformat(s) < timedelta(hours=1)]
         recent = sent and now - datetime.fromisoformat(sent[-1]) < timedelta(minutes=lim.confirm_min)
@@ -186,13 +211,70 @@ def reconcile(want: Wants, snap: Snapshot, mem: Mem, site: Site, dry_run: bool) 
     return tuple(out)
 
 
-def status(snap: Snapshot, want: Wants, mem: Mem, site: Site, dry_run: bool, policy: Policy, mode: str
-           ) -> tuple[str, dict]:
+def overrides(want: Wants, snap: Snapshot, mem: Mem, site: Site, dry_run: bool) -> list[dict]:
+    """Live: once a thermostat has shown our wanted setpoint, a mode or setpoint outside both of
+    ours is a person's override; reconcile leaves that circuit alone until it shows one of ours
+    again or override_clear passes. Dry run can't tell its own writes from the live baseline's, so
+    it records only values no known writer uses."""
+    now, out = snap.now, []
+    for c in CIRCUITS:
+        t, spec = snap.tstats[c], site.thermostats[c]
+        if not t.available or (t.mode == "heat" and t.setpoint is None):
+            continue  # unknown, e.g. attributes dropped across an HA restart
+        seen = {"mode": t.mode, "setpoint": t.setpoint}
+        ours = t.mode == "heat" and t.setpoint in (spec.hold_f, spec.call_f)
+        if dry_run:
+            known = ours or (t.mode == "heat" and t.setpoint in site.baseline_setpoints)
+            if not known and mem.foreign.get(c) != seen:
+                out.append(_event(now, "foreign", c, f"{spec.entity} {t.mode} {t.setpoint}: no known writer"))
+                mem.foreign[c] = seen
+            elif known and c in mem.foreign:
+                del mem.foreign[c]
+            continue
+        o = mem.override.get(c)
+        if o and (ours or datetime.fromisoformat(o["since"]) < _last(site.limits.override_clear, now)):
+            del mem.override[c]
+            mem.confirmed = [x for x in mem.confirmed if x != c]
+            out.append(_event(now, "override", c, "ended: back to ours" if ours else "ended: daily clear"))
+        elif o or (not ours and c not in mem.confirmed):
+            continue
+        elif not ours:
+            mem.override[c] = {"since": now.isoformat(timespec="seconds"), **seen}
+            mem.confirmed = [x for x in mem.confirmed if x != c]
+            out.append(_event(now, "override", c, f"{spec.entity} {t.mode} {t.setpoint}: hands off"))
+        elif t.setpoint == spec.setpoint(want[c].on) and c not in mem.confirmed:
+            mem.confirmed = sorted({*mem.confirmed, c})
+    return out
+
+
+def _last(t, now: datetime) -> datetime:
+    at = datetime.combine(now.date(), t)
+    return at if at <= now else at - timedelta(days=1)
+
+
+def _event(now: datetime, kind: str, circuit: str, what: str) -> dict:
+    return {"t": now.isoformat(timespec="seconds"), "kind": kind, "circuit": circuit, "what": what}
+
+
+def status(snap: Snapshot, want: Wants, mem: Mem, site: Site, dry_run: bool, policy: Policy, mode: str,
+           blocked: Mapping[Circuit, str]) -> tuple[str, dict]:
     band = band_at(snap.now, site)
     zones = {z: ({"temp": round(t.value, 1), "coldest": round(t.coldest, 1), "tier": t.tier.value}
                  if isinstance(t, Reading) else {"blind": t.reason}) for z, t in snap.temps.items()}
     circuits = {c: {"on": w.on, "setpoint": site.thermostats[c].setpoint(w.on), "rule": w.rule.value, "why": w.why}
+                | ({"override": mem.override[c]} if c in mem.override else {})
+                | ({"foreign": mem.foreign[c]} if c in mem.foreign else {})
                 for c, w in want.items()}
+    p, econ, b = snap.prices, site.economics, snap.boiler
     return (f"{mode} (dry)" if dry_run else mode), {
         "band": {"lo": band.lo, "hi": band.hi}, "tou": snap.tou, "zones": zones, "circuits": circuits,
+        "primary": mem.primary, "unusable": dict(blocked),
+        "cost": {"usd_per_mmbtu": cost.table(p, econ), "cop": econ.cop, "boiler_eff": econ.boiler_eff,
+                 "propane_gal": p.propane_gal,
+                 "propane_source": f"default: {site.propane_price} missing" if p.propane_default else site.propane_price,
+                 "missing_rates": sorted(set(site.rates) - set(p.kwh))},
+        "boiler": {"power": {True: "on", False: "off", None: "unavailable"}[b.power], "ch_f": b.ch_f,
+                   "ch_plan_f": site.boiler.ch_f, "ch_reasserted": mem.ch_at},
+        "heat_pump": {"compressor": snap.hp.compressor, "power_w": snap.hp.power_w,
+                      "lockout": mem.lockout or {"state": "normal"}},
         "floor_guard": list(mem.floor), "policy": asdict(policy), "outdoor": snap.outdoor_f}
