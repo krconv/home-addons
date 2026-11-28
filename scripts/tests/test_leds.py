@@ -58,7 +58,8 @@ def fast(monkeypatch):
 def make_app(tmp_path):
     def make(devices, known=True):
         a = LedsApp(logger=logging.getLogger("test"), addon_config={}, app_config={},
-                    state_file=str(tmp_path / "leds" / "notifications.json"))
+                    state_file=str(tmp_path / "leds" / "notifications.json"),
+                    indicator_file=str(tmp_path / "leds" / "indicator.json"))
         a._mqtt = FakeMqtt(devices)
         a._zigbee = FakeZigbee(devices)
         a._reconcile_task = None
@@ -327,3 +328,42 @@ def test_rejoined_switch_gets_its_notification_again(make_app, monkeypatch):
 def test_effect_list():
     assert EFFECTS[0] == "solid" and "christmas_checker" in EFFECTS
     assert len(EFFECTS) == len(set(EFFECTS))
+
+
+def test_restart_with_nothing_reported_sends_nothing(make_app):
+    a = make_app(house())
+    run(a, lambda: a._set({"state": "ON", "effect": "christmas_checker"}))
+    assert json.load(open(a.indicator_file))["0x1"]["defaultLed2ColorWhenOn"] == 85
+
+    # Restart: Zigbee2MQTT doesn't retain device state, so the switches report nothing yet.
+    b = make_app([device(d.friendly_name, base=d.base_topic, ieee=d.ieee_address, props={})
+                  for d in house()], known=False)
+    b.state_file, b.indicator_file = a.state_file, a.indicator_file
+    b._load_notifications()
+    b._load_sent()
+    b.setting = a.setting
+    run(b, lambda: b._schedule_reconcile(0))
+    assert b._mqtt.sets() == []
+
+
+def test_without_saved_values_unreported_parameters_are_written(make_app):
+    a = make_app([device("Nook Switch", ieee="0x3", props={})])
+    run(a, lambda: a._schedule_reconcile(0))
+    assert len(a._mqtt.sets()) == len(FACTORY)
+
+
+def test_a_report_overrides_the_saved_value(make_app):
+    a = make_app(house())
+    a.sent = {"0x1": {"ledColorWhenOn": 170}}
+    a._zigbee._devices_by_ieee["0x1"].state.properties["ledColorWhenOn"] = 42
+    run(a, lambda: a._schedule_reconcile(0))
+    assert a._mqtt.sets() == [("Kitchen Switch A", {"ledColorWhenOn": 170})]
+
+
+def test_unreadable_indicator_file_is_ignored(make_app):
+    a = make_app(house())
+    import os
+    os.makedirs(os.path.dirname(a.indicator_file), exist_ok=True)
+    open(a.indicator_file, "w").write("{not json")
+    a._load_sent()
+    assert a.sent == {}
