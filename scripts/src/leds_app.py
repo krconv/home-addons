@@ -40,6 +40,7 @@ from . import mqtt, zigbee
 TOPIC = "scripts/leds"
 DISCOVERY_TOPIC = "homeassistant/light/scripts_led_bars/config"
 STATE_FILE = "/data/leds/notifications.json"
+INDICATOR_FILE = "/data/leds/indicator.json"
 LED_MODELS = {"VZM30-SN", "VZM31-SN", "VZM35-SN", "VZM36"}
 LEDS_PER_BAR = 7
 PACE_S = 0.06  # per Zigbee command
@@ -298,6 +299,11 @@ class LedsApp:
     # Indicator values sent since the last resync, by IEEE. Compared before what the switch
     # reported, so a quick second change doesn't resend what Zigbee2MQTT hasn't echoed yet.
     written: dict[str, dict[str, int]] = field(default_factory=dict)
+    # Every indicator value ever sent, by IEEE; saved to INDICATOR_FILE. The bottom layer of
+    # what a switch has: Zigbee2MQTT doesn't retain device state, so after a restart a switch
+    # reports nothing until it next talks, and without this every parameter would be rewritten.
+    sent: dict[str, dict[str, int]] = field(default_factory=dict)
+    indicator_file: str = INDICATOR_FILE
     # The notification on each switch (by IEEE) as far as the app knows; saved to STATE_FILE.
     notifications: dict[str, Notification] = field(default_factory=dict)
     state_file: str = STATE_FILE
@@ -314,6 +320,7 @@ class LedsApp:
         rooms = sorted({room_of(d) for d in switches})
         self.logger.info(f"Found {len(switches)} switches with LED bars in {len(rooms)} rooms")
         self._load_notifications()
+        self._load_sent()
 
         await self._restore_setting()
         self._publish_discovery()
@@ -356,6 +363,27 @@ class LedsApp:
             self.logger.info("No saved notification state; clearing notifications once")
         except (ValueError, TypeError) as e:
             self.logger.warning(f"Unreadable {self.state_file} ({e}); clearing notifications once")
+
+    def _load_sent(self) -> None:
+        try:
+            with open(self.indicator_file) as f:
+                saved = json.load(f)
+            self.sent = {
+                ieee: {k: int(v) for k, v in params.items()} for ieee, params in saved.items()
+            }
+        except FileNotFoundError:
+            pass
+        except (ValueError, TypeError, AttributeError) as e:
+            self.logger.warning(f"Unreadable {self.indicator_file} ({e}); ignoring it")
+
+    def _save_sent(self) -> None:
+        try:
+            os.makedirs(os.path.dirname(self.indicator_file), exist_ok=True)
+            with open(self.indicator_file + ".tmp", "w") as f:
+                json.dump(self.sent, f)
+            os.replace(self.indicator_file + ".tmp", self.indicator_file)
+        except OSError as e:
+            self.logger.warning(f"Couldn't save {self.indicator_file}: {e}")
 
     def _save_notifications(self) -> None:
         try:
@@ -403,7 +431,10 @@ class LedsApp:
             del self.requests[rid]
 
     def _current(self, device: zigbee.ZigBeeDevice) -> dict:
-        return device.state.properties | self.written.get(device.ieee_address, {})
+        """What the switch has: what it reported, over what was ever sent, under what was just
+        sent (and not echoed yet)."""
+        ieee = device.ieee_address
+        return self.sent.get(ieee, {}) | device.state.properties | self.written.get(ieee, {})
 
     # Reconcile.
 
@@ -425,8 +456,16 @@ class LedsApp:
             for device in interleave(switches):
                 ieee, i = device.ieee_address, index[device.ieee_address]
                 look = self._desired(device, now)
+                target = indicator(look, i)
+                # Remember what the switch reported too, so after a restart its values are known
+                # before it talks again.
+                reported = device.state.properties
+                known = self.sent.setdefault(ieee, {})
+                for k in target:
+                    if isinstance(reported.get(k), int):
+                        known[k] = reported[k]
                 current = self._current(device)
-                params = {k: v for k, v in indicator(look, i).items() if current.get(k) != v}
+                params = {k: v for k, v in target.items() if current.get(k) != v}
                 want = notification(look, i)
                 # Indicator first, so an animation never drops back to the old color. One key
                 # per message: Zigbee2MQTT's Inovelli converter applies only the first key of a
@@ -439,10 +478,12 @@ class LedsApp:
                     self._send(device, payload)
                     await asyncio.sleep(PACE_S)
                 self.written.setdefault(ieee, {}).update(params)
+                self.sent.setdefault(ieee, {}).update(params)
                 self.notifications[ieee] = want
                 changed += 1
                 commands += len(payloads)
         finally:
+            self._save_sent()
             if changed:
                 self._save_notifications()
                 self.logger.info(
