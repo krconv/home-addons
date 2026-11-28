@@ -72,15 +72,14 @@ def numeric(st: Optional[dict], now: datetime, site: Site) -> Optional[float]:
 
 def heat_pump(states: RawStates, now: datetime, site: Site) -> HeatPumpObs:
     lim = site.limits
-    comp = states.get(site.hp_compressor)
-    on = {"on": True, "off": False}.get(_state(comp)) if _is_fresh(comp, now, site, lim.hp_fresh_min) else None
     power = _fresh_float(states.get(site.hp_power), now, site, lim.hp_fresh_min)
+    on = {"on": True, "off": False}.get(_state(states.get(site.hp_compressor))) if power is not None else None
     return HeatPumpObs(compressor=on, power_w=power if power is not None and power >= 0 else None)
 
 
 def boiler(states: RawStates, now: datetime, site: Site) -> BoilerObs:
     return BoilerObs(power={"on": True, "off": False}.get(_state(states.get(site.boiler_power))),
-                     ch_f=_fresh_float(states.get(site.boiler_ch), now, site, site.boiler.fresh_min))
+                     ch_f=_float(_state(states.get(site.boiler_ch))) if _state(states.get(site.boiler_power)) == "on" else None)
 
 
 def prices(states: RawStates, site: Site) -> Prices:
