@@ -21,9 +21,13 @@ options:
       config_file: "/config/lights.yaml"
     - name: "leds"
       enabled: true
+    - name: "hvac_controller"
+      enabled: true
   hvac:
     dry_run: true
     lockout_auto_reset: false
+  hvac_controller:
+    dry_run: true
 schema:
   log_level: "list(debug|info|warning|error)"
   zigbee_base_topics:
@@ -35,6 +39,8 @@ schema:
   hvac:
     dry_run: "bool?"
     lockout_auto_reset: "bool?"
+  hvac_controller:
+    dry_run: "bool?"
 map:
   - share:rw
   - config:ro

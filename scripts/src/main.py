@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from . import lights_app, mqtt
 
-BACKGROUND_APPS = {"hvac", "leds"}
+BACKGROUND_APPS = {"hvac", "hvac_controller", "leds"}
 
 class AppManager:
     """Main application manager for the Scripts add-on."""
@@ -97,6 +97,16 @@ class AppManager:
             from .hvac.app import HvacApp
 
             app = HvacApp(
+                logger=logging.getLogger(f"scripts.{app_name}"),
+                addon_config=self.addon_config,
+                app_config=app_config,
+            )
+            await app.initialize()
+            return app
+        elif app_name == "hvac_controller":
+            from .hvac_controller.app import ControllerApp
+
+            app = ControllerApp(
                 logger=logging.getLogger(f"scripts.{app_name}"),
                 addon_config=self.addon_config,
                 app_config=app_config,
